@@ -7,30 +7,36 @@ import CoffeeForm from "./CoffeeForm";
 interface AppState {
   view: "start" | "home" | "coffee-form" | "pokedex" | "settings";
   coffees: Coffee[];
+  recentCoffees: Coffee[];
   currentCoffee: Coffee | null;
   currentPokemon: CoffeePokemon | null;
   pokedex: CoffeePokemon[];
+  currentPokedexIndex: number; // Current position in pokedex array
   loading: boolean;
   error: string | null;
   backendConnected: boolean;
   formStep: number; // 1: Basic Info, 2: Roast/Process, 3: Tasting Notes, 4: Tasting Traits 1, 5: Tasting Traits 2, 6: Recipe/Timing
   pokedexPage: number; // 1: Coffee Details, 2: LLM Analysis
   colorTheme: "red" | "blue" | "yellow"; // Game Boy Color theme
+  isQuickBrew: boolean; // Whether we're in quick brew mode (subsequent brew of same coffee)
 }
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
     view: "start",
     coffees: [],
+    recentCoffees: [],
     currentCoffee: null,
     currentPokemon: null,
     pokedex: [],
+    currentPokedexIndex: 0,
     loading: false,
     error: null,
     backendConnected: false,
     formStep: 1,
     pokedexPage: 1,
     colorTheme: "blue",
+    isQuickBrew: false,
   });
 
   const [formData, setFormData] = useState<Partial<Coffee>>({
@@ -92,6 +98,7 @@ const App: React.FC = () => {
           pokedex,
           currentPokemon: firstPokemon,
           currentCoffee: coffee,
+          currentPokedexIndex: 0,
           loading: false,
         }));
       } else {
@@ -106,16 +113,66 @@ const App: React.FC = () => {
     }
   };
 
+  const navigatePokedex = async (direction: "prev" | "next") => {
+    const newIndex =
+      direction === "next"
+        ? Math.min(state.currentPokedexIndex + 1, state.pokedex.length - 1)
+        : Math.max(state.currentPokedexIndex - 1, 0);
+
+    if (newIndex !== state.currentPokedexIndex) {
+      setState((prev) => ({ ...prev, loading: true }));
+      try {
+        const pokemon = state.pokedex[newIndex];
+        const coffee = await api.getCoffee(pokemon.coffee_id);
+        setState((prev) => ({
+          ...prev,
+          currentPokemon: pokemon,
+          currentCoffee: coffee,
+          currentPokedexIndex: newIndex,
+          loading: false,
+        }));
+      } catch (error) {
+        setState((prev) => ({
+          ...prev,
+          error: `Failed to load coffee: ${error}`,
+          loading: false,
+        }));
+      }
+    }
+  };
+
+  const loadRecentCoffees = async () => {
+    try {
+      const recent = await api.getRecentCoffees();
+      setState((prev) => ({ ...prev, recentCoffees: recent }));
+    } catch (error) {
+      console.error("Failed to load recent coffees:", error);
+    }
+  };
+
   const handleCoffeeSubmit = async (coffee: Partial<Coffee>) => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const newCoffee = await api.createCoffee(coffee);
-      setState((prev) => ({
-        ...prev,
-        currentCoffee: newCoffee,
-        loading: false,
-      }));
-      await handleGeneratePokemon(newCoffee.id);
+      if (state.isQuickBrew) {
+        // Quick brew: just save the entry, no Pokemon generation
+        const newCoffee = await api.createBrewEntry(coffee);
+        setState((prev) => ({
+          ...prev,
+          currentCoffee: newCoffee,
+          loading: false,
+          view: "home",
+          isQuickBrew: false,
+        }));
+      } else {
+        // Full new coffee: generate Pokemon
+        const newCoffee = await api.createCoffee(coffee);
+        setState((prev) => ({
+          ...prev,
+          currentCoffee: newCoffee,
+          loading: false,
+        }));
+        await handleGeneratePokemon(newCoffee.id);
+      }
     } catch (error) {
       setState((prev) => ({
         ...prev,
@@ -209,12 +266,31 @@ const App: React.FC = () => {
           >
             <button
               className="pokemon-button"
-              onClick={() =>
-                setState((prev) => ({ ...prev, view: "coffee-form" }))
-              }
+              onClick={() => {
+                setState((prev) => ({
+                  ...prev,
+                  view: "coffee-form",
+                  isQuickBrew: false,
+                }));
+              }}
               disabled={!state.backendConnected}
             >
               New Coffee
+            </button>
+            <button
+              className="pokemon-button"
+              onClick={async () => {
+                await loadRecentCoffees();
+                setState((prev) => ({
+                  ...prev,
+                  view: "coffee-form",
+                  isQuickBrew: true,
+                  formStep: 1,
+                }));
+              }}
+              disabled={!state.backendConnected}
+            >
+              Quick Brew
             </button>
             <button
               className="pokemon-button"
@@ -340,9 +416,16 @@ const App: React.FC = () => {
         }
         onSubmit={handleSubmit}
         onBack={() =>
-          setState((prev) => ({ ...prev, view: "home", formStep: 1 }))
+          setState((prev) => ({
+            ...prev,
+            view: "home",
+            formStep: 1,
+            isQuickBrew: false,
+          }))
         }
         error={state.error}
+        isQuickBrew={state.isQuickBrew}
+        recentCoffees={state.recentCoffees}
       />
     );
   };
@@ -389,12 +472,16 @@ const App: React.FC = () => {
       );
     }
 
-    const pokemon = state.currentPokemon || state.pokedex[0];
+    const pokemon =
+      state.currentPokemon || state.pokedex[state.currentPokedexIndex];
     const coffee = state.currentCoffee;
     const spriteUrl = `./pokemon-sprites/${String(pokemon.pokemon_id).padStart(
       3,
       "0"
     )}.png`;
+
+    const hasPrev = state.currentPokedexIndex > 0;
+    const hasNext = state.currentPokedexIndex < state.pokedex.length - 1;
 
     if (!coffee) {
       return (
@@ -434,32 +521,46 @@ const App: React.FC = () => {
               ← Back
             </button>
 
-            <div
-              className="pokemon-sprite-container mb-sm"
-              style={{ textAlign: "center", padding: "4px 0" }}
-            >
-              <img
-                src={spriteUrl}
-                alt={pokemon.pokemon_name}
-                className="pokemon-sprite"
-                style={{
-                  width: "96px",
-                  height: "96px",
-                  display: "block",
-                  margin: "0 auto",
-                }}
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
+            <div className="mb-sm">
               <div
+                className="pokemon-textbox"
                 style={{
-                  fontSize: "12px",
-                  fontWeight: "bold",
-                  marginTop: "4px",
+                  fontSize: "9px",
+                  textAlign: "center",
+                  padding: "4px",
+                  marginBottom: "8px",
                 }}
               >
-                {coffee.name.toUpperCase()}
+                Entry {state.currentPokedexIndex + 1} of {state.pokedex.length}
+              </div>
+
+              <div
+                className="pokemon-sprite-container"
+                style={{ textAlign: "center", padding: "4px 0" }}
+              >
+                <img
+                  src={spriteUrl}
+                  alt={pokemon.pokemon_name}
+                  className="pokemon-sprite"
+                  style={{
+                    width: "96px",
+                    height: "96px",
+                    display: "block",
+                    margin: "0 auto",
+                  }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = "none";
+                  }}
+                />
+                <div
+                  style={{
+                    fontSize: "12px",
+                    fontWeight: "bold",
+                    marginTop: "4px",
+                  }}
+                >
+                  {coffee.name.toUpperCase()}
+                </div>
               </div>
             </div>
 
@@ -537,11 +638,25 @@ const App: React.FC = () => {
             <div className="pokemon-nav mt-md">
               <button
                 className="pokemon-button"
+                onClick={() => navigatePokedex("prev")}
+                disabled={!hasPrev}
+              >
+                ← Prev
+              </button>
+              <button
+                className="pokemon-button"
                 onClick={() =>
                   setState((prev) => ({ ...prev, pokedexPage: 2 }))
                 }
               >
                 Analysis →
+              </button>
+              <button
+                className="pokemon-button"
+                onClick={() => navigatePokedex("next")}
+                disabled={!hasNext}
+              >
+                Next →
               </button>
             </div>
           </div>
@@ -626,9 +741,23 @@ const App: React.FC = () => {
           <div className="pokemon-nav mt-md">
             <button
               className="pokemon-button"
+              onClick={() => navigatePokedex("prev")}
+              disabled={!hasPrev}
+            >
+              ← Prev
+            </button>
+            <button
+              className="pokemon-button"
               onClick={() => setState((prev) => ({ ...prev, pokedexPage: 1 }))}
             >
               ← Details
+            </button>
+            <button
+              className="pokemon-button"
+              onClick={() => navigatePokedex("next")}
+              disabled={!hasNext}
+            >
+              Next →
             </button>
           </div>
         </div>

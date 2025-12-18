@@ -62,6 +62,11 @@ func (s *CoffeeService) ListCoffees() ([]models.Coffee, error) {
 	return s.storage.GetAll()
 }
 
+// GetRecentCoffees retrieves the most recent coffees
+func (s *CoffeeService) GetRecentCoffees(limit int) ([]models.Coffee, error) {
+	return s.storage.GetRecent(limit)
+}
+
 // UpdateCoffee modifies an existing coffee
 // TODO: Implement this method
 // Requirements:

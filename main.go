@@ -106,6 +106,14 @@ func main() {
 	mux := http.NewServeMux()
 
 	// Coffee routes
+	mux.HandleFunc("/coffees/recent", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			coffeeHandler.GetRecentCoffees(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	
 	mux.HandleFunc("/coffees", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:

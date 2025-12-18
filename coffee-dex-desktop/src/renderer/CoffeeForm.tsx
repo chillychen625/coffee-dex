@@ -10,6 +10,8 @@ interface CoffeeFormProps {
   onSubmit: () => void;
   onBack: () => void;
   error: string | null;
+  isQuickBrew?: boolean;
+  recentCoffees?: Coffee[];
 }
 
 const CoffeeForm: React.FC<CoffeeFormProps> = ({
@@ -20,6 +22,8 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
   onSubmit,
   onBack,
   error,
+  isQuickBrew = false,
+  recentCoffees = [],
 }) => {
   const updateTrait = (trait: keyof TastingTraits, value: number) => {
     setFormData({
@@ -43,100 +47,249 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
     setFormData({ ...formData, tasting_notes: notes });
   };
 
-  const renderStep1 = () => (
-    <div className="pokemon-form-group">
-      <div className="pokemon-subtitle mb-md">BASIC INFO (1/6)</div>
-      <input
-        type="text"
-        className="pokemon-input mb-sm"
-        placeholder="Coffee Name *"
-        value={formData.name || ""}
-        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-      />
-      <input
-        type="text"
-        className="pokemon-input mb-sm"
-        placeholder="Origin *"
-        value={formData.origin || ""}
-        onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
-      />
-      <input
-        type="text"
-        className="pokemon-input mb-sm"
-        placeholder="Roaster"
-        value={formData.roaster || ""}
-        onChange={(e) => setFormData({ ...formData, roaster: e.target.value })}
-      />
-      <input
-        type="number"
-        className="pokemon-input"
-        placeholder="Rating (0-10)"
-        min="0"
-        max="10"
-        value={formData.rating || 5}
-        onChange={(e) =>
-          setFormData({ ...formData, rating: parseInt(e.target.value) })
-        }
-      />
-    </div>
-  );
+  const renderStep1 = () => {
+    if (isQuickBrew) {
+      // Quick Brew: Select from recent coffees
+      return (
+        <div className="pokemon-form-group">
+          <div className="pokemon-subtitle mb-md">QUICK BREW (1/3)</div>
+          <div className="pokemon-form-label">Select Coffee:</div>
+          <select
+            className="pokemon-select mb-sm"
+            value={formData.id || ""}
+            onChange={(e) => {
+              const selected = recentCoffees.find(
+                (c) => c.id === e.target.value
+              );
+              if (selected) {
+                setFormData({
+                  ...selected,
+                  // Reset brew-specific fields
+                  tasting_notes: ["", "", "", "", ""],
+                  dripper: "",
+                  end_time: { minutes: 0, seconds: 0 },
+                });
+              }
+            }}
+          >
+            <option value="">-- Select a coffee --</option>
+            {recentCoffees.map((coffee) => (
+              <option key={coffee.id} value={coffee.id}>
+                {coffee.name} - {coffee.origin}
+              </option>
+            ))}
+          </select>
+          {formData.id && (
+            <div className="pokemon-textbox mt-sm" style={{ fontSize: "9px" }}>
+              <div>
+                <strong>Roaster:</strong> {formData.roaster}
+              </div>
+              <div>
+                <strong>Roast:</strong> {formData.roast_level}
+              </div>
+              <div>
+                <strong>Process:</strong> {formData.processing_method}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
 
-  const renderStep2 = () => (
-    <div className="pokemon-form-group">
-      <div className="pokemon-subtitle mb-md">ROAST & PROCESS (2/6)</div>
-      <select
-        className="pokemon-select mb-sm"
-        value={formData.roast_level || "medium"}
-        onChange={(e) =>
-          setFormData({ ...formData, roast_level: e.target.value as any })
-        }
-      >
-        <option value="light">Light</option>
-        <option value="medium">Medium</option>
-        <option value="dark">Dark</option>
-        <option value="light medium">Light Medium</option>
-        <option value="medium dark">Medium Dark</option>
-        <option value="unclear">Unclear</option>
-      </select>
-      <select
-        className="pokemon-select mb-sm"
-        value={formData.processing_method || "washed"}
-        onChange={(e) =>
-          setFormData({ ...formData, processing_method: e.target.value as any })
-        }
-      >
-        <option value="washed">Washed</option>
-        <option value="natural">Natural</option>
-        <option value="honey">Honey</option>
-        <option value="coferment">Coferment</option>
-        <option value="experimental">Experimental</option>
-      </select>
-      <input
-        type="text"
-        className="pokemon-input"
-        placeholder="Dripper (e.g., V60)"
-        value={formData.dripper || ""}
-        onChange={(e) => setFormData({ ...formData, dripper: e.target.value })}
-      />
-    </div>
-  );
-
-  const renderStep3 = () => (
-    <div className="pokemon-form-group">
-      <div className="pokemon-subtitle mb-md">TASTING NOTES (3/6)</div>
-      <div className="pokemon-form-label">Up to 5 notes:</div>
-      {[0, 1, 2, 3, 4].map((i) => (
+    // Regular new coffee flow
+    return (
+      <div className="pokemon-form-group">
+        <div className="pokemon-subtitle mb-md">BASIC INFO (1/6)</div>
         <input
-          key={i}
           type="text"
           className="pokemon-input mb-sm"
-          placeholder={`Note ${i + 1}`}
-          value={formData.tasting_notes?.[i] || ""}
-          onChange={(e) => updateTastingNote(i, e.target.value)}
+          placeholder="Coffee Name *"
+          value={formData.name || ""}
+          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
         />
-      ))}
-    </div>
-  );
+        <input
+          type="text"
+          className="pokemon-input mb-sm"
+          placeholder="Origin *"
+          value={formData.origin || ""}
+          onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
+        />
+        <input
+          type="text"
+          className="pokemon-input mb-sm"
+          placeholder="Roaster"
+          value={formData.roaster || ""}
+          onChange={(e) =>
+            setFormData({ ...formData, roaster: e.target.value })
+          }
+        />
+        <input
+          type="number"
+          className="pokemon-input"
+          placeholder="Rating (0-10)"
+          min="0"
+          max="10"
+          value={formData.rating || 5}
+          onChange={(e) =>
+            setFormData({ ...formData, rating: parseInt(e.target.value) })
+          }
+        />
+      </div>
+    );
+  };
+
+  const renderStep2 = () => {
+    if (isQuickBrew) {
+      // Quick Brew: Skip to dripper only
+      return (
+        <div className="pokemon-form-group">
+          <div className="pokemon-subtitle mb-md">BREWING METHOD (2/3)</div>
+          <input
+            type="text"
+            className="pokemon-input"
+            placeholder="Dripper (e.g., V60)"
+            value={formData.dripper || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, dripper: e.target.value })
+            }
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="pokemon-form-group">
+        <div className="pokemon-subtitle mb-md">ROAST & PROCESS (2/6)</div>
+        <select
+          className="pokemon-select mb-sm"
+          value={formData.roast_level || "medium"}
+          onChange={(e) =>
+            setFormData({ ...formData, roast_level: e.target.value as any })
+          }
+        >
+          <option value="light">Light</option>
+          <option value="medium">Medium</option>
+          <option value="dark">Dark</option>
+          <option value="light medium">Light Medium</option>
+          <option value="medium dark">Medium Dark</option>
+          <option value="unclear">Unclear</option>
+        </select>
+        <select
+          className="pokemon-select mb-sm"
+          value={formData.processing_method || "washed"}
+          onChange={(e) =>
+            setFormData({
+              ...formData,
+              processing_method: e.target.value as any,
+            })
+          }
+        >
+          <option value="washed">Washed</option>
+          <option value="natural">Natural</option>
+          <option value="honey">Honey</option>
+          <option value="coferment">Coferment</option>
+          <option value="experimental">Experimental</option>
+        </select>
+        <input
+          type="text"
+          className="pokemon-input"
+          placeholder="Dripper (e.g., V60)"
+          value={formData.dripper || ""}
+          onChange={(e) =>
+            setFormData({ ...formData, dripper: e.target.value })
+          }
+        />
+      </div>
+    );
+  };
+
+  const renderStep3 = () => {
+    const stepLabel = isQuickBrew ? "BREW TIME (3/3)" : "TASTING NOTES (3/6)";
+
+    if (isQuickBrew) {
+      // Quick Brew: Only tasting notes and brew time
+      return (
+        <div className="pokemon-form-group">
+          <div className="pokemon-subtitle mb-md">{stepLabel}</div>
+          <div className="pokemon-form-label">Tasting notes (optional):</div>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <input
+              key={i}
+              type="text"
+              className="pokemon-input mb-sm"
+              placeholder={`Note ${i + 1}`}
+              value={formData.tasting_notes?.[i] || ""}
+              onChange={(e) => updateTastingNote(i, e.target.value)}
+            />
+          ))}
+          <div className="pokemon-form-row mt-md">
+            <div className="pokemon-form-col">
+              <label className="pokemon-form-label">Minutes</label>
+              <input
+                type="number"
+                className="pokemon-input"
+                placeholder="0"
+                min="0"
+                value={formData.end_time?.minutes || 0}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    end_time: {
+                      ...formData.end_time!,
+                      minutes: parseInt(e.target.value) || 0,
+                    },
+                  })
+                }
+              />
+            </div>
+            <div className="pokemon-form-col">
+              <label className="pokemon-form-label">Seconds</label>
+              <input
+                type="number"
+                className="pokemon-input"
+                placeholder="0"
+                min="0"
+                max="59"
+                value={formData.end_time?.seconds || 0}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    end_time: {
+                      ...formData.end_time!,
+                      seconds: parseInt(e.target.value) || 0,
+                    },
+                  })
+                }
+              />
+            </div>
+          </div>
+          <div
+            className="pokemon-textbox mt-md text-center"
+            style={{ fontSize: "10px" }}
+          >
+            Ready to save brew entry!
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="pokemon-form-group">
+        <div className="pokemon-subtitle mb-md">TASTING NOTES (3/6)</div>
+        <div className="pokemon-form-label">Up to 5 notes:</div>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <input
+            key={i}
+            type="text"
+            className="pokemon-input mb-sm"
+            placeholder={`Note ${i + 1}`}
+            value={formData.tasting_notes?.[i] || ""}
+            onChange={(e) => updateTastingNote(i, e.target.value)}
+          />
+        ))}
+      </div>
+    );
+  };
 
   const renderStep4 = () => (
     <div className="pokemon-form-group">
@@ -270,15 +423,15 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
         </button>
 
         <h2 className="pokemon-title" style={{ fontSize: "14px" }}>
-          NEW COFFEE
+          {isQuickBrew ? "QUICK BREW" : "NEW COFFEE"}
         </h2>
 
         {formStep === 1 && renderStep1()}
         {formStep === 2 && renderStep2()}
         {formStep === 3 && renderStep3()}
-        {formStep === 4 && renderStep4()}
-        {formStep === 5 && renderStep5()}
-        {formStep === 6 && renderStep6()}
+        {!isQuickBrew && formStep === 4 && renderStep4()}
+        {!isQuickBrew && formStep === 5 && renderStep5()}
+        {!isQuickBrew && formStep === 6 && renderStep6()}
 
         {error && (
           <div
@@ -299,16 +452,17 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
             </button>
           )}
           <div style={{ flex: 1 }} />
-          {formStep < 6 ? (
+          {formStep < (isQuickBrew ? 3 : 6) ? (
             <button
               className="pokemon-button"
               onClick={() => setFormStep(formStep + 1)}
+              disabled={isQuickBrew && formStep === 1 && !formData.id}
             >
               Next →
             </button>
           ) : (
             <button className="pokemon-button" onClick={onSubmit}>
-              Generate!
+              {isQuickBrew ? "Save Brew" : "Generate!"}
             </button>
           )}
         </div>

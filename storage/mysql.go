@@ -207,6 +207,63 @@ func (m *MySQLStorage) GetAll() ([]models.Coffee, error) {
 	return coffees, nil
 }
 
+// GetRecent retrieves the most recent coffees from the database
+func (m *MySQLStorage) GetRecent(limit int) ([]models.Coffee, error) {
+	query := `
+		SELECT id, name, origin, roaster, roast_level, processing_method,
+		       tasting_notes, tasting_traits, rating, recipe, dripper,
+		       end_time_minutes, end_time_seconds, created_at, updated_at
+		FROM coffees
+		ORDER BY created_at DESC
+		LIMIT ?
+	`
+	
+	rows, err := m.db.Query(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recent coffees: %w", err)
+	}
+	defer rows.Close()
+	
+	var coffees []models.Coffee
+	
+	for rows.Next() {
+		var coffee models.Coffee
+		var tastingNotesJSON, tastingTraitsJSON, recipeJSON []byte
+		
+		err := rows.Scan(
+			&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster,
+			&coffee.RoastLevel, &coffee.ProcessingMethod,
+			&tastingNotesJSON, &tastingTraitsJSON, &coffee.Rating, &recipeJSON, &coffee.Dripper,
+			&coffee.EndTime.Minutes, &coffee.EndTime.Seconds,
+			&coffee.CreatedAt, &coffee.UpdatedAt,
+		)
+		
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan coffee: %w", err)
+		}
+		
+		if err := json.Unmarshal(tastingNotesJSON, &coffee.TastingNotes); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tasting notes: %w", err)
+		}
+		
+		if err := json.Unmarshal(tastingTraitsJSON, &coffee.TastingTraits); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tasting traits: %w", err)
+		}
+		
+		if err := json.Unmarshal(recipeJSON, &coffee.Recipe); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal recipe: %w", err)
+		}
+		
+		coffees = append(coffees, coffee)
+	}
+	
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+	
+	return coffees, nil
+}
+
 // Update modifies an existing coffee entry
 func (m *MySQLStorage) Update(id string, coffee models.Coffee) error {
 	tastingNotesJSON, err := json.Marshal(coffee.TastingNotes)

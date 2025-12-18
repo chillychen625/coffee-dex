@@ -14,6 +14,7 @@ type CoffeeStorage interface {
 	Save(coffee models.Coffee) error
 	GetByID(id string) (models.Coffee, error)
 	GetAll() ([]models.Coffee, error)
+	GetRecent(limit int) ([]models.Coffee, error)
 	Update(id string, coffee models.Coffee) error
 	Delete(id string) error
 }

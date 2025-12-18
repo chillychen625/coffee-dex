@@ -87,6 +87,24 @@ func (h *CoffeeHandler) ListCoffees(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, coffees)
 }
 
+// GetRecentCoffees handles GET /coffees/recent
+func (h *CoffeeHandler) GetRecentCoffees(w http.ResponseWriter, r *http.Request) {
+	// Default to 10 recent coffees
+	limit := 10
+	
+	coffees, err := h.service.GetRecentCoffees(limit)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to get recent coffees")
+		return
+	}
+	
+	if coffees == nil {
+		coffees = []models.Coffee{}
+	}
+	
+	respondJSON(w, http.StatusOK, coffees)
+}
+
 // UpdateCoffee handles PUT /coffees/{id}
 // TODO: Implement this method
 // Requirements:

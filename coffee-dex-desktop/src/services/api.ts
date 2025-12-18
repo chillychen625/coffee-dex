@@ -18,6 +18,14 @@ export class CoffeeDexAPI {
     return response.json();
   }
 
+  async getRecentCoffees(): Promise<Coffee[]> {
+    const response = await fetch(`${this.baseUrl}/coffees/recent`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch recent coffees: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
   async getCoffee(id: string): Promise<Coffee> {
     const response = await fetch(`${this.baseUrl}/coffees/${id}`);
     if (!response.ok) {
@@ -36,6 +44,21 @@ export class CoffeeDexAPI {
     });
     if (!response.ok) {
       throw new Error(`Failed to create coffee: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async createBrewEntry(coffee: Partial<Coffee>): Promise<Coffee> {
+    // Same as createCoffee but used for subsequent brews
+    const response = await fetch(`${this.baseUrl}/coffees`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(coffee),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to create brew entry: ${response.statusText}`);
     }
     return response.json();
   }

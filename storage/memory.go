@@ -63,6 +63,37 @@ func (m *MemoryStorage) GetAll() ([]models.Coffee, error) {
 	return coffees, nil
 }
 
+// GetRecent retrieves the most recent coffees (sorted by creation date)
+func (m *MemoryStorage) GetRecent(limit int) ([]models.Coffee, error) {
+	if m == nil {
+		return nil, errors.New("memory storage is not initialized")
+	}
+	
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
+	var coffees []models.Coffee
+	for _, coffee := range m.coffees {
+		coffees = append(coffees, coffee)
+	}
+	
+	// Sort by creation date descending
+	for i := 0; i < len(coffees)-1; i++ {
+		for j := i + 1; j < len(coffees); j++ {
+			if coffees[j].CreatedAt.After(coffees[i].CreatedAt) {
+				coffees[i], coffees[j] = coffees[j], coffees[i]
+			}
+		}
+	}
+	
+	// Limit the results
+	if limit > 0 && limit < len(coffees) {
+		coffees = coffees[:limit]
+	}
+	
+	return coffees, nil
+}
+
 // Update modifies an existing coffee entry
 func (m *MemoryStorage) Update(id string, coffee models.Coffee) error {
 	if m == nil {
