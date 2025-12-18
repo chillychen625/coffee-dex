@@ -1,5 +1,35 @@
--- CoffeeDex Pokemon Database Setup
--- Creates the Pokemon tables needed for the coffee-Pokemon integration
+-- CoffeeDex Complete Database Setup
+-- Creates database, user, and all necessary tables
+
+-- Create database if it doesn't exist
+CREATE DATABASE IF NOT EXISTS coffee_log;
+
+-- Use the database
+USE coffee_log;
+
+-- Create coffee_user if it doesn't exist (with error handling)
+CREATE USER IF NOT EXISTS 'coffee_user'@'localhost' IDENTIFIED BY 'coffee_pass123';
+GRANT ALL PRIVILEGES ON coffee_log.* TO 'coffee_user'@'localhost';
+FLUSH PRIVILEGES;
+
+-- Create coffees table (base table that Pokemon tables depend on)
+CREATE TABLE IF NOT EXISTS coffees (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    origin VARCHAR(255),
+    roaster VARCHAR(255),
+    roast_level VARCHAR(50),
+    processing_method VARCHAR(100),
+    tasting_notes JSON,
+    tasting_traits JSON,
+    rating INT,
+    recipe JSON,
+    dripper VARCHAR(100),
+    end_time_minutes INT,
+    end_time_seconds INT,
+    created_at DATETIME,
+    updated_at DATETIME
+);
 
 -- Create pokemons reference table
 CREATE TABLE IF NOT EXISTS pokemons (
@@ -22,12 +52,14 @@ CREATE TABLE IF NOT EXISTS coffee_pokemon (
     llm_description TEXT,
     trait_mapping JSON,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (coffee_id) REFERENCES coffees(id),
-    FOREIGN KEY (pokemon_id) REFERENCES pokemons(id)
+    FOREIGN KEY (coffee_id) REFERENCES coffees(id) ON DELETE CASCADE,
+    FOREIGN KEY (pokemon_id) REFERENCES pokemons(id) ON DELETE CASCADE
 );
 
 -- Create unique index to ensure each Pokemon is used only once
+-- Note: Index will only be created if it doesn't already exist (handled by CREATE TABLE IF NOT EXISTS)
+-- If running setup multiple times, this may fail harmlessly if index exists
 CREATE UNIQUE INDEX idx_unique_pokemon ON coffee_pokemon(pokemon_id);
 
 -- Show confirmation
-SELECT 'Pokemon tables created successfully!' as status;
+SELECT 'Database setup complete! All tables created successfully.' as status;

@@ -42,23 +42,27 @@ help:
 # Database Setup
 setup-db:
 	@echo "$(BLUE)Setting up database...$(RESET)"
-	@if [ ! -f "setup_pokemon_database.sql" ]; then \
+	@if [ ! -f "./sql/setup_pokemon_database.sql" ]; then \
 		echo "$(RED)Error: setup_pokemon_database.sql not found$(RESET)"; \
 		exit 1; \
 	fi
 	@echo "$(YELLOW)Creating database and tables...$(RESET)"
-	mysql -u $(MYSQL_USER) $(if $(MYSQL_PASSWORD),-p$(MYSQL_PASSWORD)) -h $(MYSQL_HOST) -P $(MYSQL_PORT) < setup_pokemon_database.sql
+	@if [ -z "$(MYSQL_PASSWORD)" ]; then \
+		mysql -u $(MYSQL_USER) -h $(MYSQL_HOST) -P $(MYSQL_PORT) -p < ./sql/setup_pokemon_database.sql; \
+	else \
+		mysql -u $(MYSQL_USER) -p$(MYSQL_PASSWORD) -h $(MYSQL_HOST) -P $(MYSQL_PORT) < ./sql/setup_pokemon_database.sql; \
+	fi
 	@echo "$(GREEN)Database setup complete!$(RESET)"
 
 # Load Pokemon data
 load-pokemon-data:
 	@echo "$(BLUE)Loading Pokemon data...$(RESET)"
-	@if [ ! -f "pokemon_gen1_data.sql" ]; then \
+	@if [ ! -f "./sql/pokemon_gen1_data.sql" ]; then \
 		echo "$(RED)Error: pokemon_gen1_data.sql not found$(RESET)"; \
 		exit 1; \
 	fi
 	@echo "$(YELLOW)Loading Gen 1 Pokemon data...$(RESET)"
-	mysql -u $(MYSQL_USER) $(if $(MYSQL_PASSWORD),-p$(MYSQL_PASSWORD)) -h $(MYSQL_HOST) -P $(MYSQL_PORT) $(MYSQL_DB) < pokemon_gen1_data.sql
+	mysql -u $(MYSQL_USER) $(if $(MYSQL_PASSWORD),-p$(MYSQL_PASSWORD)) -h $(MYSQL_HOST) -P $(MYSQL_PORT) $(MYSQL_DB) < ./sql/pokemon_gen1_data.sql
 	@echo "$(GREEN)Pokemon data loaded successfully!$(RESET)"
 	@mysql -u $(MYSQL_USER) $(if $(MYSQL_PASSWORD),-p$(MYSQL_PASSWORD)) -h $(MYSQL_HOST) -P $(MYSQL_PORT) $(MYSQL_DB) -e "SELECT COUNT(*) as total_pokemon FROM pokemons;" || echo "Database verification failed"
 
