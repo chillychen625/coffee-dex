@@ -2,10 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"go-coffee-log/models"
 	"go-coffee-log/service"
 	"net/http"
-	"go-coffee-log/models"
-	"log"
 )
 
 // CoffeeHandler handles HTTP requests for coffee operations

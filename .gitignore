@@ -1,0 +1,67 @@
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+build/
+
+# Go module files
+vendor/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Electron build artifacts
+coffee-dex-desktop/dist/
+coffee-dex-desktop/node_modules/
+coffee-dex-desktop/release/
+coffee-dex-desktop/*.log
+coffee-dex-desktop/*.tmp
+
+# Pokemon sprites (optional - uncomment if you want to exclude sprites)
+# static/pokemon-sprites/*.png
+
+# Test files
+*_test.go
+coverage.out
+
+# Temporary files
+tmp/
+temp/
+
+# Log files
+*.log
+
+# Generated documentation
+docs/generated/
+
+# API keys and sensitive data
+config/secrets.json
+config/keys.json

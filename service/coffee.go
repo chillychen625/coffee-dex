@@ -4,8 +4,8 @@ import (
 	"go-coffee-log/models"
 	"go-coffee-log/storage"
 	"time"
+
 	"github.com/google/uuid"
-	"log"
 )
 
 // CoffeeService handles business logic for coffee operations

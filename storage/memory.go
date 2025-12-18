@@ -4,7 +4,6 @@ import (
 	"errors"
 	"go-coffee-log/models"
 	"sync"
-	"log"
 )
 
 // MemoryStorage implements CoffeeStorage using an in-memory map

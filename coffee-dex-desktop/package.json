@@ -1,0 +1,58 @@
+{
+  "name": "coffee-dex",
+  "version": "1.0.0",
+  "description": "A Pokemon-themed coffee logging desktop application",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:renderer": "node build.js",
+    "build:main": "tsc",
+    "package": "electron-builder",
+    "dist": "npm run build && electron-builder --publish=never"
+  },
+  "devDependencies": {
+    "@fontsource/press-start-2p": "^5.2.7",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "electron": "^27.0.0",
+    "electron-builder": "^24.0.0",
+    "esbuild": "^0.19.12",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "build": {
+    "appId": "com.coffeedex.app",
+    "productName": "CoffeeDex",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "dist/**/*",
+      "static/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  },
+  "keywords": [
+    "coffee",
+    "pokemon",
+    "desktop",
+    "electron"
+  ],
+  "author": "CoffeeDex Team",
+  "license": "MIT"
+}
