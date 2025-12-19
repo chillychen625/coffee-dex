@@ -42,7 +42,8 @@ esbuild
   .build({
     entryPoints: ["src/renderer/index.tsx"],
     bundle: true,
-    outfile: "dist/renderer.js",
+    outdir: "dist",
+    entryNames: "renderer",
     platform: "browser",
     target: "es2020",
     loader: {
