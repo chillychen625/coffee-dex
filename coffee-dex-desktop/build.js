@@ -2,6 +2,18 @@ const esbuild = require("esbuild");
 const path = require("path");
 const fs = require("fs");
 
+// Ensure dist directory exists
+const distDir = path.join(__dirname, "dist");
+if (!fs.existsSync(distDir)) {
+  fs.mkdirSync(distDir, { recursive: true });
+}
+
+// Copy index.html to dist
+const indexSrc = path.join(__dirname, "static", "index.html");
+const indexDest = path.join(distDir, "index.html");
+fs.copyFileSync(indexSrc, indexDest);
+console.log("✓ Copied index.html to dist/");
+
 // Ensure dist/pokemon-sprites directory exists
 const spritesDir = path.join(__dirname, "dist", "pokemon-sprites");
 if (!fs.existsSync(spritesDir)) {
