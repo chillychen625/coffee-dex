@@ -69,6 +69,13 @@ func main() {
 	// Initialize services
 	coffeeService := service.NewCoffeeService(store)
 	
+	// Initialize statistics service
+	var statisticsService *service.StatisticsService
+	
+	// Initialize brewer service
+	var brewerService *service.BrewerService
+	var brewerStorage storage.BrewerStorage
+	
 	// Initialize Pokemon service
 	var pokemonService *service.PokemonService
 	var llmService *service.LLMService
@@ -91,6 +98,13 @@ func main() {
 		if err := pokemonService.InitializePokemonData(); err != nil {
 			log.Printf("Failed to initialize Pokemon data: %v", err)
 		}
+		
+		// Initialize statistics service (requires Pokemon storage)
+		statisticsService = service.NewStatisticsService(store, pokemonStorage)
+		
+		// Initialize brewer service (requires MySQL storage)
+		brewerStorage = storage.NewMySQLBrewerStorage(db, store)
+		brewerService = service.NewBrewerService(brewerStorage)
 	} else {
 		fmt.Println("Pokemon features disabled (requires MySQL storage)")
 	}
@@ -99,8 +113,19 @@ func main() {
 	coffeeHandler := handlers.NewCoffeeHandler(coffeeService)
 	
 	var pokemonHandler *handlers.PokemonHandler
+	var statisticsHandler *handlers.StatisticsHandler
+	var brewerHandler *handlers.BrewerHandler
+	
 	if pokemonService != nil {
 		pokemonHandler = handlers.NewPokemonHandler(pokemonService, coffeeService)
+	}
+	
+	if statisticsService != nil {
+		statisticsHandler = handlers.NewStatisticsHandler(statisticsService)
+	}
+	
+	if brewerService != nil {
+		brewerHandler = handlers.NewBrewerHandler(brewerService)
 	}
 	
 	mux := http.NewServeMux()
@@ -185,6 +210,121 @@ func main() {
 			default:
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
+		})
+	}
+	
+	// Statistics routes (if statistics service is available)
+	if statisticsHandler != nil {
+		mux.HandleFunc("/statistics", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodGet:
+				statisticsHandler.GetStatistics(w, r)
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+	}
+	
+	// Brewer routes (if brewer service is available)
+	if brewerHandler != nil {
+		mux.HandleFunc("/brewers/pokeball-types", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				brewerHandler.GetAvailablePokeballTypes(w, r)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		
+		mux.HandleFunc("/brewers/with-recipes", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				brewerHandler.GetAllBrewersWithRecipes(w, r)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		
+		mux.HandleFunc("/brewers", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPost:
+				brewerHandler.CreateBrewer(w, r)
+			case http.MethodGet:
+				brewerHandler.GetAllBrewers(w, r)
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		
+		mux.HandleFunc("/brewers/", func(w http.ResponseWriter, r *http.Request) {
+			path := strings.TrimPrefix(r.URL.Path, "/brewers/")
+			parts := strings.Split(path, "/")
+			if len(parts) == 0 || parts[0] == "" {
+				http.NotFound(w, r)
+				return
+			}
+			
+			brewerID := parts[0]
+			
+			// Handle /brewers/{id}/recipes/{coffee_id}
+			if len(parts) == 3 && parts[1] == "recipes" {
+				r.SetPathValue("id", brewerID)
+				r.SetPathValue("coffee_id", parts[2])
+				if r.Method == http.MethodDelete {
+					brewerHandler.RemoveRecipeFromBrewer(w, r)
+					return
+				}
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			
+			// Handle /brewers/{id}/standalone-recipes/{recipe_id}
+			if len(parts) == 3 && parts[1] == "standalone-recipes" {
+				r.SetPathValue("id", brewerID)
+				r.SetPathValue("recipe_id", parts[2])
+				if r.Method == http.MethodDelete {
+					brewerHandler.RemoveStandaloneRecipe(w, r)
+					return
+				}
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			
+			// Handle /brewers/{id}/standalone-recipes
+			if len(parts) == 2 && parts[1] == "standalone-recipes" {
+				r.SetPathValue("id", brewerID)
+				if r.Method == http.MethodPost {
+					brewerHandler.AddStandaloneRecipe(w, r)
+					return
+				}
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			
+			// Handle /brewers/{id}/recipes
+			if len(parts) == 2 && parts[1] == "recipes" {
+				r.SetPathValue("id", brewerID)
+				if r.Method == http.MethodGet {
+					brewerHandler.GetBrewerWithRecipes(w, r)
+					return
+				} else if r.Method == http.MethodPost {
+					brewerHandler.AddRecipeToBrewer(w, r)
+					return
+				}
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			
+			// Handle /brewers/{id}
+			if len(parts) == 1 {
+				r.SetPathValue("id", brewerID)
+				if r.Method == http.MethodDelete {
+					brewerHandler.DeleteBrewer(w, r)
+					return
+				}
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			
+			http.NotFound(w, r)
 		})
 	}
 	

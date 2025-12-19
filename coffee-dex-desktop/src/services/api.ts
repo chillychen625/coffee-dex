@@ -147,6 +147,190 @@ export class CoffeeDexAPI {
     return response.json();
   }
 
+  async getStatistics(): Promise<{
+    total_coffees: number;
+    total_pokemon: number;
+    completion_percentage: number;
+    average_rating: number;
+    highest_rated_coffee: { name: string; rating: number } | null;
+    lowest_rated_coffee: { name: string; rating: number } | null;
+    type_distribution: { [key: string]: number };
+    top_origins: Array<{ origin: string; count: number; avg_rating: number }>;
+    processing_methods: { [key: string]: number };
+    roast_levels: { [key: string]: number };
+    trait_averages: { [key: string]: number };
+    brewer_stats: Array<{
+      brewer: string;
+      count: number;
+      avg_rating: number;
+      avg_brew_time: number;
+    }>;
+    confidence_metrics: {
+      average_confidence: number;
+      high_confidence_count: number;
+      medium_confidence_count: number;
+      low_confidence_count: number;
+    };
+  }> {
+    const response = await fetch(`${this.baseUrl}/statistics`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch statistics: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  // Brewer endpoints
+  async getBrewers(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      pokeball_type: string;
+      recipes: Array<{
+        id: string;
+        name: string;
+        steps: string[];
+      }>;
+      created_at: string;
+    }>
+  > {
+    const response = await fetch(`${this.baseUrl}/brewers`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch brewers: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getBrewersWithRecipes(): Promise<
+    Array<{
+      brewer: {
+        id: string;
+        name: string;
+        pokeball_type: string;
+        created_at: string;
+      };
+      recipes: Coffee[];
+    }>
+  > {
+    const response = await fetch(`${this.baseUrl}/brewers/with-recipes`);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch brewers with recipes: ${response.statusText}`
+      );
+    }
+    return response.json();
+  }
+
+  async createBrewer(
+    name: string,
+    pokeballType: string
+  ): Promise<{
+    id: string;
+    name: string;
+    pokeball_type: string;
+    created_at: string;
+  }> {
+    const response = await fetch(`${this.baseUrl}/brewers`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name, pokeball_type: pokeballType }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to create brewer: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async deleteBrewer(brewerId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/brewers/${brewerId}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to delete brewer: ${response.statusText}`);
+    }
+  }
+
+  async addRecipeToBrewer(brewerId: string, coffeeId: string): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/brewers/${brewerId}/recipes`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ coffee_id: coffeeId }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to add recipe to brewer: ${response.statusText}`);
+    }
+  }
+
+  async removeRecipeFromBrewer(
+    brewerId: string,
+    coffeeId: string
+  ): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/brewers/${brewerId}/recipes/${coffeeId}`,
+      {
+        method: "DELETE",
+      }
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Failed to remove recipe from brewer: ${response.statusText}`
+      );
+    }
+  }
+
+  async getPokeballTypes(): Promise<string[]> {
+    const response = await fetch(`${this.baseUrl}/brewers/pokeball-types`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch pokeball types: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async addStandaloneRecipe(
+    brewerId: string,
+    name: string,
+    steps: string[]
+  ): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/brewers/${brewerId}/standalone-recipes`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name, steps }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Failed to add standalone recipe: ${response.statusText}`
+      );
+    }
+  }
+
+  async removeStandaloneRecipe(
+    brewerId: string,
+    recipeId: string
+  ): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/brewers/${brewerId}/standalone-recipes/${recipeId}`,
+      {
+        method: "DELETE",
+      }
+    );
+    if (!response.ok) {
+      throw new Error(
+        `Failed to remove standalone recipe: ${response.statusText}`
+      );
+    }
+  }
+
   // Health check
   async healthCheck(): Promise<boolean> {
     try {

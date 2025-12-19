@@ -59,7 +59,26 @@ CREATE TABLE IF NOT EXISTS coffee_pokemon (
 -- Create unique index to ensure each Pokemon is used only once
 -- Note: Index will only be created if it doesn't already exist (handled by CREATE TABLE IF NOT EXISTS)
 -- If running setup multiple times, this may fail harmlessly if index exists
-CREATE UNIQUE INDEX idx_unique_pokemon ON coffee_pokemon(pokemon_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_pokemon ON coffee_pokemon(pokemon_id);
+
+-- Create brewers table (for brewing equipment)
+CREATE TABLE IF NOT EXISTS brewers (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    pokeball_type VARCHAR(50) NOT NULL,
+    created_at DATETIME
+);
+
+-- Create brewer_recipes table (for linking brewers to coffee recipes)
+CREATE TABLE IF NOT EXISTS brewer_recipes (
+    id VARCHAR(36) PRIMARY KEY,
+    brewer_id VARCHAR(36) NOT NULL,
+    coffee_id VARCHAR(36) NOT NULL,
+    created_at DATETIME,
+    FOREIGN KEY (brewer_id) REFERENCES brewers(id) ON DELETE CASCADE,
+    FOREIGN KEY (coffee_id) REFERENCES coffees(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_brewer_coffee (brewer_id, coffee_id)
+);
 
 -- Show confirmation
 SELECT 'Database setup complete! All tables created successfully.' as status;

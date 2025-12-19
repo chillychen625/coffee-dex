@@ -1,6 +1,14 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Coffee, TastingTraits } from "../types/pokemon";
 import "../styles/pokemon-gameboy.css";
+import { api } from "../services/api";
+
+interface Brewer {
+  id: string;
+  name: string;
+  pokeball_type: string;
+  created_at: string;
+}
 
 interface CoffeeFormProps {
   formData: Partial<Coffee>;
@@ -12,6 +20,8 @@ interface CoffeeFormProps {
   error: string | null;
   isQuickBrew?: boolean;
   recentCoffees?: Coffee[];
+  selectedBrewerId?: string;
+  onBrewerSelect?: (brewerId: string) => void;
 }
 
 const CoffeeForm: React.FC<CoffeeFormProps> = ({
@@ -24,7 +34,62 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
   error,
   isQuickBrew = false,
   recentCoffees = [],
+  selectedBrewerId = "",
+  onBrewerSelect = () => {},
 }) => {
+  const [brewers, setBrewers] = useState<Brewer[]>([]);
+  const [allCoffees, setAllCoffees] = useState<Coffee[]>([]);
+  const [uniqueOrigins, setUniqueOrigins] = useState<string[]>([]);
+  const [uniqueRoasters, setUniqueRoasters] = useState<string[]>([]);
+  const [uniqueTastingNotes, setUniqueTastingNotes] = useState<string[]>([]);
+
+  useEffect(() => {
+    loadBrewers();
+    loadAllCoffeesForAutocomplete();
+  }, []);
+
+  const loadBrewers = async () => {
+    try {
+      const data = await api.getBrewers();
+      setBrewers(data);
+    } catch (err) {
+      console.error("Failed to load brewers:", err);
+    }
+  };
+
+  const loadAllCoffeesForAutocomplete = async () => {
+    try {
+      const coffees = await api.getCoffees();
+      setAllCoffees(coffees);
+
+      // Extract unique origins
+      const origins = new Set<string>();
+      coffees.forEach((c) => {
+        if (c.origin) origins.add(c.origin);
+      });
+      setUniqueOrigins(Array.from(origins).sort());
+
+      // Extract unique roasters
+      const roasters = new Set<string>();
+      coffees.forEach((c) => {
+        if (c.roaster) roasters.add(c.roaster);
+      });
+      setUniqueRoasters(Array.from(roasters).sort());
+
+      // Extract unique tasting notes
+      const notes = new Set<string>();
+      coffees.forEach((c) => {
+        if (c.tasting_notes) {
+          c.tasting_notes.forEach((note) => {
+            if (note && note.trim()) notes.add(note.trim());
+          });
+        }
+      });
+      setUniqueTastingNotes(Array.from(notes).sort());
+    } catch (err) {
+      console.error("Failed to load coffees for autocomplete:", err);
+    }
+  };
   const updateTrait = (trait: keyof TastingTraits, value: number) => {
     setFormData({
       ...formData,
@@ -111,18 +176,30 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
           type="text"
           className="pokemon-input mb-sm"
           placeholder="Origin *"
+          list="origins-list"
           value={formData.origin || ""}
           onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
         />
+        <datalist id="origins-list">
+          {uniqueOrigins.map((origin) => (
+            <option key={origin} value={origin} />
+          ))}
+        </datalist>
         <input
           type="text"
           className="pokemon-input mb-sm"
           placeholder="Roaster"
+          list="roasters-list"
           value={formData.roaster || ""}
           onChange={(e) =>
             setFormData({ ...formData, roaster: e.target.value })
           }
         />
+        <datalist id="roasters-list">
+          {uniqueRoasters.map((roaster) => (
+            <option key={roaster} value={roaster} />
+          ))}
+        </datalist>
         <input
           type="number"
           className="pokemon-input"
@@ -140,19 +217,40 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
 
   const renderStep2 = () => {
     if (isQuickBrew) {
-      // Quick Brew: Skip to dripper only
+      // Quick Brew: Skip to brewer selection
       return (
         <div className="pokemon-form-group">
           <div className="pokemon-subtitle mb-md">BREWING METHOD (2/3)</div>
-          <input
-            type="text"
-            className="pokemon-input"
-            placeholder="Dripper (e.g., V60)"
-            value={formData.dripper || ""}
-            onChange={(e) =>
-              setFormData({ ...formData, dripper: e.target.value })
-            }
-          />
+          {brewers.length > 0 ? (
+            <select
+              className="pokemon-select"
+              value={selectedBrewerId}
+              onChange={(e) => onBrewerSelect(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "8px",
+                fontSize: "12px",
+                border: "2px solid #000",
+              }}
+            >
+              <option value="">Brewer (optional)</option>
+              {brewers.map((brewer) => (
+                <option key={brewer.id} value={brewer.id}>
+                  {brewer.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              className="pokemon-input"
+              placeholder="Dripper (e.g., V60)"
+              value={formData.dripper || ""}
+              onChange={(e) =>
+                setFormData({ ...formData, dripper: e.target.value })
+              }
+            />
+          )}
         </div>
       );
     }
@@ -190,15 +288,36 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
           <option value="coferment">Coferment</option>
           <option value="experimental">Experimental</option>
         </select>
-        <input
-          type="text"
-          className="pokemon-input"
-          placeholder="Dripper (e.g., V60)"
-          value={formData.dripper || ""}
-          onChange={(e) =>
-            setFormData({ ...formData, dripper: e.target.value })
-          }
-        />
+        {brewers.length > 0 ? (
+          <select
+            className="pokemon-select"
+            value={selectedBrewerId}
+            onChange={(e) => onBrewerSelect(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "8px",
+              fontSize: "12px",
+              border: "2px solid #000",
+            }}
+          >
+            <option value="">Brewer (optional)</option>
+            {brewers.map((brewer) => (
+              <option key={brewer.id} value={brewer.id}>
+                {brewer.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type="text"
+            className="pokemon-input"
+            placeholder="Dripper (e.g., V60)"
+            value={formData.dripper || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, dripper: e.target.value })
+            }
+          />
+        )}
       </div>
     );
   };
@@ -283,10 +402,16 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
             type="text"
             className="pokemon-input mb-sm"
             placeholder={`Note ${i + 1}`}
+            list="tasting-notes-list"
             value={formData.tasting_notes?.[i] || ""}
             onChange={(e) => updateTastingNote(i, e.target.value)}
           />
         ))}
+        <datalist id="tasting-notes-list">
+          {uniqueTastingNotes.map((note) => (
+            <option key={note} value={note} />
+          ))}
+        </datalist>
       </div>
     );
   };

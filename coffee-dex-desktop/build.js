@@ -1,5 +1,29 @@
 const esbuild = require("esbuild");
 const path = require("path");
+const fs = require("fs");
+
+// Ensure dist/pokemon-sprites directory exists
+const spritesDir = path.join(__dirname, "dist", "pokemon-sprites");
+if (!fs.existsSync(spritesDir)) {
+  fs.mkdirSync(spritesDir, { recursive: true });
+}
+
+// Copy pokeball sprite files
+const pokeballSprites = [
+  "fast-ball.png",
+  "lagreat-ball.png",
+  "laultra-ball.png",
+  "left-poke-ball.png",
+];
+
+pokeballSprites.forEach((sprite) => {
+  const src = path.join(__dirname, "static", "pokemon-sprites", sprite);
+  const dest = path.join(spritesDir, sprite);
+  if (fs.existsSync(src)) {
+    fs.copyFileSync(src, dest);
+    console.log(`✓ Copied ${sprite}`);
+  }
+});
 
 // Build renderer process
 esbuild

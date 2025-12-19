@@ -3,9 +3,18 @@ import { api } from "../services/api";
 import { Coffee, CoffeePokemon, TastingTraits } from "../types/pokemon";
 import "../styles/pokemon-gameboy.css";
 import CoffeeForm from "./CoffeeForm";
+import Statistics from "./Statistics";
+import SpecialItems from "./SpecialItems";
 
 interface AppState {
-  view: "start" | "home" | "coffee-form" | "pokedex" | "settings";
+  view:
+    | "start"
+    | "home"
+    | "coffee-form"
+    | "pokedex"
+    | "settings"
+    | "statistics"
+    | "special-items";
   coffees: Coffee[];
   recentCoffees: Coffee[];
   currentCoffee: Coffee | null;
@@ -19,6 +28,7 @@ interface AppState {
   pokedexPage: number; // 1: Coffee Details, 2: LLM Analysis
   colorTheme: "red" | "blue" | "yellow"; // Game Boy Color theme
   isQuickBrew: boolean; // Whether we're in quick brew mode (subsequent brew of same coffee)
+  pokedexSort: "date" | "rating" | "name" | "confidence"; // Sort order for pokedex
 }
 
 const App: React.FC = () => {
@@ -37,7 +47,10 @@ const App: React.FC = () => {
     pokedexPage: 1,
     colorTheme: "blue",
     isQuickBrew: false,
+    pokedexSort: "date",
   });
+
+  const [selectedBrewerId, setSelectedBrewerId] = useState<string>("");
 
   const [formData, setFormData] = useState<Partial<Coffee>>({
     name: "",
@@ -74,6 +87,27 @@ const App: React.FC = () => {
     checkBackend();
   }, []);
 
+  // Keyboard shortcuts for Pokedex navigation
+  useEffect(() => {
+    if (state.view !== "pokedex") return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Prevent default only for arrow keys we're handling
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+
+        if (e.key === "ArrowLeft") {
+          navigatePokedex("prev");
+        } else if (e.key === "ArrowRight") {
+          navigatePokedex("next");
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [state.view, state.currentPokedexIndex, state.pokedex.length]);
+
   const checkBackend = async () => {
     const connected = await api.healthCheck();
     setState((prev) => ({ ...prev, backendConnected: connected }));
@@ -88,7 +122,11 @@ const App: React.FC = () => {
   const loadPokedex = async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const pokedex = await api.getPokedex();
+      let pokedex = await api.getPokedex();
+
+      // Apply sorting
+      pokedex = sortPokedex(pokedex, state.pokedexSort);
+
       // Fetch the first coffee's details if available
       if (pokedex.length > 0) {
         const firstPokemon = pokedex[0];
@@ -110,6 +148,64 @@ const App: React.FC = () => {
         error: `Failed to load Pokedex: ${error}`,
         loading: false,
       }));
+    }
+  };
+
+  const sortPokedex = (
+    pokedex: CoffeePokemon[],
+    sortBy: "date" | "rating" | "name" | "confidence"
+  ) => {
+    const sorted = [...pokedex];
+    switch (sortBy) {
+      case "date":
+        // Newest first (assuming higher index = newer)
+        return sorted.reverse();
+      case "rating":
+        // Need to fetch coffee data - for now just return as-is
+        // This would require fetching all coffees first
+        return sorted;
+      case "name":
+        return sorted.sort((a, b) =>
+          a.pokemon_name.localeCompare(b.pokemon_name)
+        );
+      case "confidence":
+        return sorted.sort(
+          (a, b) => b.mapping_confidence - a.mapping_confidence
+        );
+      default:
+        return sorted;
+    }
+  };
+
+  const handleSortChange = async (
+    sortBy: "date" | "rating" | "name" | "confidence"
+  ) => {
+    setState((prev) => ({ ...prev, pokedexSort: sortBy, loading: true }));
+
+    const sortedPokedex = sortPokedex(state.pokedex, sortBy);
+
+    // Load the first coffee from sorted list
+    if (sortedPokedex.length > 0) {
+      try {
+        const firstPokemon = sortedPokedex[0];
+        const coffee = await api.getCoffee(firstPokemon.coffee_id);
+        setState((prev) => ({
+          ...prev,
+          pokedex: sortedPokedex,
+          currentPokemon: firstPokemon,
+          currentCoffee: coffee,
+          currentPokedexIndex: 0,
+          loading: false,
+        }));
+      } catch (error) {
+        setState((prev) => ({
+          ...prev,
+          error: `Failed to load coffee: ${error}`,
+          loading: false,
+        }));
+      }
+    } else {
+      setState((prev) => ({ ...prev, pokedex: sortedPokedex, loading: false }));
     }
   };
 
@@ -156,6 +252,12 @@ const App: React.FC = () => {
       if (state.isQuickBrew) {
         // Quick brew: just save the entry, no Pokemon generation
         const newCoffee = await api.createBrewEntry(coffee);
+
+        // Add to brewer if selected
+        if (selectedBrewerId) {
+          await api.addRecipeToBrewer(selectedBrewerId, newCoffee.id);
+        }
+
         setState((prev) => ({
           ...prev,
           currentCoffee: newCoffee,
@@ -163,14 +265,22 @@ const App: React.FC = () => {
           view: "home",
           isQuickBrew: false,
         }));
+        setSelectedBrewerId("");
       } else {
         // Full new coffee: generate Pokemon
         const newCoffee = await api.createCoffee(coffee);
+
+        // Add to brewer if selected
+        if (selectedBrewerId) {
+          await api.addRecipeToBrewer(selectedBrewerId, newCoffee.id);
+        }
+
         setState((prev) => ({
           ...prev,
           currentCoffee: newCoffee,
           loading: false,
         }));
+        setSelectedBrewerId("");
         await handleGeneratePokemon(newCoffee.id);
       }
     } catch (error) {
@@ -258,10 +368,11 @@ const App: React.FC = () => {
         <div>
           <div
             style={{
-              display: "flex",
-              gap: "16px",
-              justifyContent: "center",
-              marginTop: "24px",
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: "12px",
+              maxWidth: "500px",
+              margin: "24px auto 0",
             }}
           >
             <button
@@ -274,6 +385,7 @@ const App: React.FC = () => {
                 }));
               }}
               disabled={!state.backendConnected}
+              style={{ fontSize: "11px", padding: "10px" }}
             >
               New Coffee
             </button>
@@ -289,6 +401,7 @@ const App: React.FC = () => {
                 }));
               }}
               disabled={!state.backendConnected}
+              style={{ fontSize: "11px", padding: "10px" }}
             >
               Quick Brew
             </button>
@@ -299,23 +412,37 @@ const App: React.FC = () => {
                 setState((prev) => ({ ...prev, view: "pokedex" }));
               }}
               disabled={!state.backendConnected}
+              style={{ fontSize: "11px", padding: "10px" }}
             >
               View Pokedex
             </button>
-          </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "center",
-              marginTop: "16px",
-            }}
-          >
+            <button
+              className="pokemon-button"
+              onClick={() =>
+                setState((prev) => ({ ...prev, view: "statistics" }))
+              }
+              disabled={!state.backendConnected}
+              style={{ fontSize: "11px", padding: "10px" }}
+            >
+              Statistics
+            </button>
+            <button
+              className="pokemon-button"
+              onClick={() =>
+                setState((prev) => ({ ...prev, view: "special-items" }))
+              }
+              disabled={!state.backendConnected}
+              style={{ fontSize: "11px", padding: "10px" }}
+            >
+              Brewers
+            </button>
             <button
               className="pokemon-button"
               onClick={() =>
                 setState((prev) => ({ ...prev, view: "settings" }))
               }
               disabled={!state.backendConnected}
+              style={{ fontSize: "11px", padding: "10px" }}
             >
               Settings
             </button>
@@ -415,17 +542,20 @@ const App: React.FC = () => {
           setState((prev) => ({ ...prev, formStep: step }))
         }
         onSubmit={handleSubmit}
-        onBack={() =>
+        onBack={() => {
           setState((prev) => ({
             ...prev,
             view: "home",
             formStep: 1,
             isQuickBrew: false,
-          }))
-        }
+          }));
+          setSelectedBrewerId("");
+        }}
         error={state.error}
         isQuickBrew={state.isQuickBrew}
         recentCoffees={state.recentCoffees}
+        selectedBrewerId={selectedBrewerId}
+        onBrewerSelect={setSelectedBrewerId}
       />
     );
   };
@@ -522,6 +652,39 @@ const App: React.FC = () => {
             </button>
 
             <div className="mb-sm">
+              <div
+                className="pokemon-textbox mb-sm"
+                style={{ fontSize: "9px", padding: "4px" }}
+              >
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "8px" }}
+                >
+                  <span style={{ fontWeight: "bold" }}>Sort:</span>
+                  <select
+                    className="pokemon-select"
+                    value={state.pokedexSort}
+                    onChange={(e) =>
+                      handleSortChange(
+                        e.target.value as
+                          | "date"
+                          | "rating"
+                          | "name"
+                          | "confidence"
+                      )
+                    }
+                    style={{
+                      flex: 1,
+                      padding: "4px",
+                      fontSize: "9px",
+                      border: "1px solid #000",
+                    }}
+                  >
+                    <option value="date">Date (Newest)</option>
+                    <option value="name">Name (A-Z)</option>
+                    <option value="confidence">Confidence (High-Low)</option>
+                  </select>
+                </div>
+              </div>
               <div
                 className="pokemon-textbox"
                 style={{
@@ -785,6 +948,16 @@ const App: React.FC = () => {
       {state.view === "coffee-form" && renderCoffeeForm()}
       {state.view === "pokedex" && renderPokedex()}
       {state.view === "settings" && renderSettings()}
+      {state.view === "statistics" && (
+        <Statistics
+          onBack={() => setState((prev) => ({ ...prev, view: "home" }))}
+        />
+      )}
+      {state.view === "special-items" && (
+        <SpecialItems
+          onBack={() => setState((prev) => ({ ...prev, view: "home" }))}
+        />
+      )}
     </div>
   );
 };

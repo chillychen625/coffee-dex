@@ -15,7 +15,7 @@ YELLOW := \033[33m
 BLUE := \033[34m
 RESET := \033[0m
 
-.PHONY: help install-deps setup-db load-pokemon-data start-server build-desktop run-desktop clean test lint
+.PHONY: help install-deps setup-db load-pokemon-data start-server build-desktop run-desktop clean test lint clear-data list-tables
 
 # Default target
 help:
@@ -32,6 +32,8 @@ help:
 	@echo "  $(GREEN)clean$(RESET)             - Clean build artifacts"
 	@echo "  $(GREEN)lint$(RESET)              - Run linting"
 	@echo "  $(GREEN)full-setup$(RESET)        - Complete setup (db + data + dependencies)"
+	@echo "  $(GREEN)clear-data$(RESET)        - Clear all coffee and mapping entries (keeps Pokemon data)"
+	@echo "  $(GREEN)list-tables$(RESET)       - List all tables in the database"
 	@echo ""
 	@echo "$(YELLOW)Database Variables:$(RESET)"
 	@echo "  MYSQL_USER=$(MYSQL_USER)"
@@ -191,6 +193,42 @@ db-info:
 		"SELECT 'Pokemons' as table_name, COUNT(*) as count FROM pokemons \
 		UNION ALL \
 		SELECT 'Coffee-Pokemon Mappings' as table_name, COUNT(*) as count FROM coffee_pokemon;"
+
+# Clear all data from tables (keeps Pokemon reference data)
+clear-data:
+	@echo "$(RED)WARNING: This will delete all entries from all tables except Pokemon data!$(RESET)"
+	@echo "$(YELLOW)Pokemon reference data will be preserved.$(RESET)"
+	@read -p "Are you sure? (y/N) " -n 1 -r; \
+	echo ""; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		echo "$(BLUE)Clearing data...$(RESET)"; \
+		mysql -u $(MYSQL_USER) $(if $(MYSQL_PASSWORD),-p$(MYSQL_PASSWORD)) -h $(MYSQL_HOST) -P $(MYSQL_PORT) $(MYSQL_DB) -e \
+			"SET FOREIGN_KEY_CHECKS = 0; \
+			TRUNCATE TABLE brewer_recipes; \
+			TRUNCATE TABLE brewers; \
+			TRUNCATE TABLE coffee_pokemon; \
+			TRUNCATE TABLE coffees; \
+			SET FOREIGN_KEY_CHECKS = 1;"; \
+		echo "$(GREEN)Data cleared successfully!$(RESET)"; \
+		echo "$(BLUE)Remaining data:$(RESET)"; \
+		mysql -u $(MYSQL_USER) $(if $(MYSQL_PASSWORD),-p$(MYSQL_PASSWORD)) -h $(MYSQL_HOST) -P $(MYSQL_PORT) $(MYSQL_DB) -e \
+			"SELECT 'Coffees' as table_name, COUNT(*) as count FROM coffees \
+			UNION ALL \
+			SELECT 'Brewers' as table_name, COUNT(*) as count FROM brewers \
+			UNION ALL \
+			SELECT 'Brewer Recipes' as table_name, COUNT(*) as count FROM brewer_recipes \
+			UNION ALL \
+			SELECT 'Coffee-Pokemon Mappings' as table_name, COUNT(*) as count FROM coffee_pokemon \
+			UNION ALL \
+			SELECT 'Pokemons' as table_name, COUNT(*) as count FROM pokemons;"; \
+	else \
+		echo "$(YELLOW)Clear data cancelled$(RESET)"; \
+	fi
+
+# List all tables in the database
+list-tables:
+	@echo "$(BLUE)Tables in database '$(MYSQL_DB)':$(RESET)"
+	@mysql -u $(MYSQL_USER) $(if $(MYSQL_PASSWORD),-p$(MYSQL_PASSWORD)) -h $(MYSQL_HOST) -P $(MYSQL_PORT) $(MYSQL_DB) -e "SHOW TABLES;"
 
 run:
 	go run main.go -storage=mysql \

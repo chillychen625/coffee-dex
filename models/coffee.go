@@ -1,13 +1,15 @@
 package models
 
-import "time"
-import "strings"
-import "fmt"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 // Coffee represents a coffee tasting entry
 
 type DrawDownTime struct {
-	Minutes int `json:"minutes:`
+	Minutes int `json:"minutes"`
 	Seconds int `json:"seconds"`
 }
 
@@ -97,30 +99,44 @@ func (c *Coffee) ValidateRoastLevel() error {
 
 // Validate checks if the Coffee data is valid
 func (c *Coffee) Validate() error {
+	// Only name is required
 	if c.Name == "" {
 		return fmt.Errorf("name cannot be empty")
 	}
-	if c.Rating < 0 || c.Rating >10 {
+	
+	// Validate rating if provided
+	if c.Rating < 0 || c.Rating > 10 {
 		return fmt.Errorf("ratings must be out of 10")
 	}
+	
+	// Validate roast level if provided
 	if c.RoastLevel != "" {
 		if err := c.ValidateRoastLevel(); err != nil {
 			return err
 		}
 	}
+	
+	// Validate processing method if provided
 	if c.ProcessingMethod != "" {
 		if err := c.ValidateProcessingMethod(); err != nil {
 			return err
 		}
 	}
-	if len(c.TastingNotes) == 0 || len(c.TastingNotes) > 5 {
-		return fmt.Errorf("tasting notes is a string array and should not be empty, maximum length is 5")
+	
+	// Tasting notes are optional - just check length if provided
+	if len(c.TastingNotes) > 5 {
+		return fmt.Errorf("tasting notes maximum length is 5")
 	}
+	
+	// Validate draw down time if provided
 	if c.EndTime.Minutes < 0 || c.EndTime.Seconds < 0 || c.EndTime.Seconds >= 60 {
 		return fmt.Errorf("invalid draw down time")
 	}
+	
+	// Validate tasting traits - allow default values
 	if err := c.TastingTraits.Validate(); err != nil {
 		return err
 	}
+	
 	return nil
 }
