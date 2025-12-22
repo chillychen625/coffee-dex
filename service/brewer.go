@@ -51,29 +51,9 @@ func (s *BrewerService) GetAllBrewers() ([]models.Brewer, error) {
 	return s.storage.GetAllBrewers()
 }
 
-// GetAllBrewersWithRecipes retrieves all brewers with their recipes
-func (s *BrewerService) GetAllBrewersWithRecipes() ([]models.BrewerWithRecipes, error) {
-	return s.storage.GetAllBrewersWithRecipes()
-}
-
-// GetBrewerWithRecipes retrieves a brewer with its recipes
-func (s *BrewerService) GetBrewerWithRecipes(brewerID string) (models.BrewerWithRecipes, error) {
-	return s.storage.GetBrewerWithRecipes(brewerID)
-}
-
 // DeleteBrewer removes a brewer and all its recipes
 func (s *BrewerService) DeleteBrewer(id string) error {
 	return s.storage.DeleteBrewer(id)
-}
-
-// AddRecipeToBrewer adds a coffee recipe to a brewer (legacy)
-func (s *BrewerService) AddRecipeToBrewer(brewerID, coffeeID string) error {
-	return s.storage.AddRecipeToBrewer(brewerID, coffeeID)
-}
-
-// RemoveRecipeFromBrewer removes a recipe from a brewer (legacy)
-func (s *BrewerService) RemoveRecipeFromBrewer(brewerID, coffeeID string) error {
-	return s.storage.RemoveRecipeFromBrewer(brewerID, coffeeID)
 }
 
 // AddStandaloneRecipe adds a standalone brewing recipe to a brewer

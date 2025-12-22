@@ -21,19 +21,6 @@ type Brewer struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// BrewerRecipe represents a coffee recipe associated with a brewer
-type BrewerRecipe struct {
-	ID          string    `json:"id"`
-	BrewerID    string    `json:"brewer_id"`
-	CoffeeID    string    `json:"coffee_id"` // Reference to existing coffee entry
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-// BrewerWithRecipes combines brewer info with its recipes
-type BrewerWithRecipes struct {
-	Brewer  Brewer   `json:"brewer"`
-	Recipes []Coffee `json:"recipes"` // Up to 4 recipes
-}
 
 // Validate validates the brewer data
 func (b *Brewer) Validate() error {

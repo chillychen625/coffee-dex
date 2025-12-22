@@ -200,26 +200,6 @@ export class CoffeeDexAPI {
     return response.json();
   }
 
-  async getBrewersWithRecipes(): Promise<
-    Array<{
-      brewer: {
-        id: string;
-        name: string;
-        pokeball_type: string;
-        created_at: string;
-      };
-      recipes: Coffee[];
-    }>
-  > {
-    const response = await fetch(`${this.baseUrl}/brewers/with-recipes`);
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch brewers with recipes: ${response.statusText}`
-      );
-    }
-    return response.json();
-  }
-
   async createBrewer(
     name: string,
     pokeballType: string
@@ -248,39 +228,6 @@ export class CoffeeDexAPI {
     });
     if (!response.ok) {
       throw new Error(`Failed to delete brewer: ${response.statusText}`);
-    }
-  }
-
-  async addRecipeToBrewer(brewerId: string, coffeeId: string): Promise<void> {
-    const response = await fetch(
-      `${this.baseUrl}/brewers/${brewerId}/recipes`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ coffee_id: coffeeId }),
-      }
-    );
-    if (!response.ok) {
-      throw new Error(`Failed to add recipe to brewer: ${response.statusText}`);
-    }
-  }
-
-  async removeRecipeFromBrewer(
-    brewerId: string,
-    coffeeId: string
-  ): Promise<void> {
-    const response = await fetch(
-      `${this.baseUrl}/brewers/${brewerId}/recipes/${coffeeId}`,
-      {
-        method: "DELETE",
-      }
-    );
-    if (!response.ok) {
-      throw new Error(
-        `Failed to remove recipe from brewer: ${response.statusText}`
-      );
     }
   }
 

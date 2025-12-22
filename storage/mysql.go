@@ -45,6 +45,7 @@ func (m *MySQLStorage) initTable() error {
 			name VARCHAR(255) NOT NULL,
 			origin VARCHAR(255),
 			roaster VARCHAR(255),
+			variety VARCHAR(255),
 			roast_level VARCHAR(50),
 			processing_method VARCHAR(100),
 			tasting_notes JSON,
@@ -86,15 +87,15 @@ func (m *MySQLStorage) Save(coffee models.Coffee) error {
 	
 	query := `
 		INSERT INTO coffees (
-			id, name, origin, roaster, roast_level, processing_method,
+			id, name, origin, roaster, variety, roast_level, processing_method,
 			tasting_notes, tasting_traits, rating, recipe, dripper,
 			end_time_minutes, end_time_seconds, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 	
 	_, err = m.db.Exec(
 		query,
-		coffee.ID, coffee.Name, coffee.Origin, coffee.Roaster,
+		coffee.ID, coffee.Name, coffee.Origin, coffee.Roaster, coffee.Variety,
 		coffee.RoastLevel, coffee.ProcessingMethod,
 		tastingNotesJSON, tastingTraitsJSON, coffee.Rating, recipeJSON, coffee.Dripper,
 		coffee.EndTime.Minutes, coffee.EndTime.Seconds,
@@ -111,7 +112,7 @@ func (m *MySQLStorage) Save(coffee models.Coffee) error {
 // GetByID retrieves a coffee by ID from the database
 func (m *MySQLStorage) GetByID(id string) (models.Coffee, error) {
 	query := `
-		SELECT id, name, origin, roaster, roast_level, processing_method,
+		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
 		       tasting_notes, tasting_traits, rating, recipe, dripper,
 		       end_time_minutes, end_time_seconds, created_at, updated_at
 		FROM coffees WHERE id = ?
@@ -123,7 +124,7 @@ func (m *MySQLStorage) GetByID(id string) (models.Coffee, error) {
 	var tastingNotesJSON, tastingTraitsJSON, recipeJSON []byte
 	
 	err := row.Scan(
-		&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster,
+		&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster, &coffee.Variety,
 		&coffee.RoastLevel, &coffee.ProcessingMethod,
 		&tastingNotesJSON, &tastingTraitsJSON, &coffee.Rating, &recipeJSON, &coffee.Dripper,
 		&coffee.EndTime.Minutes, &coffee.EndTime.Seconds,
@@ -155,7 +156,7 @@ func (m *MySQLStorage) GetByID(id string) (models.Coffee, error) {
 // GetAll retrieves all coffees from the database
 func (m *MySQLStorage) GetAll() ([]models.Coffee, error) {
 	query := `
-		SELECT id, name, origin, roaster, roast_level, processing_method,
+		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
 		       tasting_notes, tasting_traits, rating, recipe, dripper,
 		       end_time_minutes, end_time_seconds, created_at, updated_at
 		FROM coffees
@@ -174,7 +175,7 @@ func (m *MySQLStorage) GetAll() ([]models.Coffee, error) {
 		var tastingNotesJSON, tastingTraitsJSON, recipeJSON []byte
 		
 		err := rows.Scan(
-			&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster,
+			&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster, &coffee.Variety,
 			&coffee.RoastLevel, &coffee.ProcessingMethod,
 			&tastingNotesJSON, &tastingTraitsJSON, &coffee.Rating, &recipeJSON, &coffee.Dripper,
 			&coffee.EndTime.Minutes, &coffee.EndTime.Seconds,
@@ -210,7 +211,7 @@ func (m *MySQLStorage) GetAll() ([]models.Coffee, error) {
 // GetRecent retrieves the most recent coffees from the database
 func (m *MySQLStorage) GetRecent(limit int) ([]models.Coffee, error) {
 	query := `
-		SELECT id, name, origin, roaster, roast_level, processing_method,
+		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
 		       tasting_notes, tasting_traits, rating, recipe, dripper,
 		       end_time_minutes, end_time_seconds, created_at, updated_at
 		FROM coffees
@@ -231,7 +232,7 @@ func (m *MySQLStorage) GetRecent(limit int) ([]models.Coffee, error) {
 		var tastingNotesJSON, tastingTraitsJSON, recipeJSON []byte
 		
 		err := rows.Scan(
-			&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster,
+			&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster, &coffee.Variety,
 			&coffee.RoastLevel, &coffee.ProcessingMethod,
 			&tastingNotesJSON, &tastingTraitsJSON, &coffee.Rating, &recipeJSON, &coffee.Dripper,
 			&coffee.EndTime.Minutes, &coffee.EndTime.Seconds,
@@ -283,7 +284,7 @@ func (m *MySQLStorage) Update(id string, coffee models.Coffee) error {
 	
 	query := `
 		UPDATE coffees SET
-			name=?, origin=?, roaster=?, roast_level=?, processing_method=?,
+			name=?, origin=?, roaster=?, variety=?, roast_level=?, processing_method=?,
 			tasting_notes=?, tasting_traits=?, rating=?, recipe=?, dripper=?,
 			end_time_minutes=?, end_time_seconds=?, updated_at=?
 		WHERE id=?
@@ -291,7 +292,7 @@ func (m *MySQLStorage) Update(id string, coffee models.Coffee) error {
 	
 	result, err := m.db.Exec(
 		query,
-		coffee.Name, coffee.Origin, coffee.Roaster,
+		coffee.Name, coffee.Origin, coffee.Roaster, coffee.Variety,
 		coffee.RoastLevel, coffee.ProcessingMethod,
 		tastingNotesJSON, tastingTraitsJSON, coffee.Rating, recipeJSON, coffee.Dripper,
 		coffee.EndTime.Minutes, coffee.EndTime.Seconds,

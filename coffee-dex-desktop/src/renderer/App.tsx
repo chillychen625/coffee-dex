@@ -5,6 +5,7 @@ import "../styles/pokemon-gameboy.css";
 import CoffeeForm from "./CoffeeForm";
 import Statistics from "./Statistics";
 import SpecialItems from "./SpecialItems";
+import TitleBar from "../components/TitleBar";
 
 interface AppState {
   view:
@@ -14,7 +15,8 @@ interface AppState {
     | "pokedex"
     | "settings"
     | "statistics"
-    | "special-items";
+    | "special-items"
+    | "brew-success";
   coffees: Coffee[];
   recentCoffees: Coffee[];
   currentCoffee: Coffee | null;
@@ -29,6 +31,7 @@ interface AppState {
   colorTheme: "red" | "blue" | "yellow"; // Game Boy Color theme
   isQuickBrew: boolean; // Whether we're in quick brew mode (subsequent brew of same coffee)
   pokedexSort: "date" | "rating" | "name" | "confidence"; // Sort order for pokedex
+  justCreatedPokemon: boolean; // Track if we just created a new Pokemon
 }
 
 const App: React.FC = () => {
@@ -48,6 +51,7 @@ const App: React.FC = () => {
     colorTheme: "blue",
     isQuickBrew: false,
     pokedexSort: "date",
+    justCreatedPokemon: false,
   });
 
   const [selectedBrewerId, setSelectedBrewerId] = useState<string>("");
@@ -56,6 +60,7 @@ const App: React.FC = () => {
     name: "",
     origin: "",
     roaster: "",
+    variety: "",
     roast_level: "medium",
     processing_method: "washed",
     tasting_notes: ["", "", "", "", ""],
@@ -246,6 +251,46 @@ const App: React.FC = () => {
     }
   };
 
+  const resetForm = () => {
+    setFormData({
+      name: "",
+      origin: "",
+      roaster: "",
+      variety: "",
+      roast_level: "medium",
+      processing_method: "washed",
+      tasting_notes: ["", "", "", "", ""],
+      rating: 5,
+      recipe: [],
+      dripper: "",
+      end_time: {
+        minutes: 0,
+        seconds: 0,
+      },
+      tasting_traits: {
+        berry_intensity: 5,
+        stonefruit_intensity: 5,
+        roast_intensity: 5,
+        citrus_fruits_intensity: 5,
+        bitterness: 5,
+        florality: 5,
+        spice: 5,
+        sweetness: 5,
+        aromatic_intensity: 5,
+        savory: 5,
+        body: 5,
+        cleanliness: 5,
+      } as TastingTraits,
+    });
+    setSelectedBrewerId("");
+    setState((prev) => ({
+      ...prev,
+      formStep: 1,
+      isQuickBrew: false,
+      error: null,
+    }));
+  };
+
   const handleCoffeeSubmit = async (coffee: Partial<Coffee>) => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
@@ -253,27 +298,15 @@ const App: React.FC = () => {
         // Quick brew: just save the entry, no Pokemon generation
         const newCoffee = await api.createBrewEntry(coffee);
 
-        // Add to brewer if selected
-        if (selectedBrewerId) {
-          await api.addRecipeToBrewer(selectedBrewerId, newCoffee.id);
-        }
-
         setState((prev) => ({
           ...prev,
           currentCoffee: newCoffee,
           loading: false,
-          view: "home",
-          isQuickBrew: false,
+          view: "brew-success",
         }));
-        setSelectedBrewerId("");
       } else {
         // Full new coffee: generate Pokemon
         const newCoffee = await api.createCoffee(coffee);
-
-        // Add to brewer if selected
-        if (selectedBrewerId) {
-          await api.addRecipeToBrewer(selectedBrewerId, newCoffee.id);
-        }
 
         setState((prev) => ({
           ...prev,
@@ -301,6 +334,7 @@ const App: React.FC = () => {
         currentPokemon: pokemon,
         view: "pokedex",
         loading: false,
+        justCreatedPokemon: true,
       }));
     } catch (error) {
       setState((prev) => ({
@@ -543,13 +577,8 @@ const App: React.FC = () => {
         }
         onSubmit={handleSubmit}
         onBack={() => {
-          setState((prev) => ({
-            ...prev,
-            view: "home",
-            formStep: 1,
-            isQuickBrew: false,
-          }));
-          setSelectedBrewerId("");
+          resetForm();
+          setState((prev) => ({ ...prev, view: "home" }));
         }}
         error={state.error}
         isQuickBrew={state.isQuickBrew}
@@ -645,7 +674,12 @@ const App: React.FC = () => {
             <button
               className="pokemon-button mb-md"
               onClick={() =>
-                setState((prev) => ({ ...prev, view: "home", pokedexPage: 1 }))
+                setState((prev) => ({
+                  ...prev,
+                  view: "home",
+                  pokedexPage: 1,
+                  justCreatedPokemon: false,
+                }))
               }
             >
               ← Back
@@ -734,6 +768,11 @@ const App: React.FC = () => {
               <div>
                 <strong>Roaster:</strong> {coffee.roaster}
               </div>
+              {coffee.variety && (
+                <div>
+                  <strong>Variety:</strong> {coffee.variety}
+                </div>
+              )}
               <div>
                 <strong>Roast:</strong> {coffee.roast_level}
               </div>
@@ -822,6 +861,24 @@ const App: React.FC = () => {
                 Next →
               </button>
             </div>
+
+            {state.justCreatedPokemon && (
+              <button
+                className="pokemon-button mt-md"
+                onClick={() => {
+                  resetForm();
+                  setState((prev) => ({
+                    ...prev,
+                    view: "home",
+                    pokedexPage: 1,
+                    justCreatedPokemon: false,
+                  }));
+                }}
+                style={{ width: "100%", padding: "12px", fontSize: "11px" }}
+              >
+                🏠 Return to Home
+              </button>
+            )}
           </div>
         </div>
       );
@@ -837,7 +894,12 @@ const App: React.FC = () => {
           <button
             className="pokemon-button mb-md"
             onClick={() =>
-              setState((prev) => ({ ...prev, view: "home", pokedexPage: 1 }))
+              setState((prev) => ({
+                ...prev,
+                view: "home",
+                pokedexPage: 1,
+                justCreatedPokemon: false,
+              }))
             }
           >
             ← Back
@@ -923,10 +985,67 @@ const App: React.FC = () => {
               Next →
             </button>
           </div>
+
+          {state.justCreatedPokemon && (
+            <button
+              className="pokemon-button mt-md"
+              onClick={() => {
+                resetForm();
+                setState((prev) => ({
+                  ...prev,
+                  view: "home",
+                  pokedexPage: 1,
+                  justCreatedPokemon: false,
+                }));
+              }}
+              style={{ width: "100%", padding: "12px", fontSize: "11px" }}
+            >
+              🏠 Return to Home
+            </button>
+          )}
         </div>
       </div>
     );
   };
+
+  const renderBrewSuccess = () => (
+    <div className="pokemon-screen centered">
+      <div
+        className="pokemon-frame"
+        style={{ maxWidth: "600px", margin: "0 auto" }}
+      >
+        <h2 className="pokemon-title" style={{ fontSize: "14px" }}>
+          BREW SAVED!
+        </h2>
+
+        <div
+          className="pokemon-textbox text-center"
+          style={{ fontSize: "12px", marginBottom: "24px" }}
+        >
+          <div style={{ fontSize: "24px", marginBottom: "12px" }}>✓</div>
+          <div>Your brew has been successfully logged!</div>
+          {state.currentCoffee && (
+            <div style={{ fontSize: "10px", marginTop: "12px" }}>
+              <strong>{state.currentCoffee.name}</strong>
+              <br />
+              {state.currentCoffee.origin}
+            </div>
+          )}
+        </div>
+
+        <button
+          className="pokemon-button"
+          onClick={() => {
+            resetForm();
+            setState((prev) => ({ ...prev, view: "home" }));
+          }}
+          style={{ width: "100%", padding: "12px", fontSize: "12px" }}
+        >
+          Return to Home
+        </button>
+      </div>
+    </div>
+  );
 
   if (state.loading && state.view === "coffee-form") {
     return (
@@ -943,21 +1062,25 @@ const App: React.FC = () => {
 
   return (
     <div data-theme={state.colorTheme}>
-      {state.view === "start" && renderStart()}
-      {state.view === "home" && renderHome()}
-      {state.view === "coffee-form" && renderCoffeeForm()}
-      {state.view === "pokedex" && renderPokedex()}
-      {state.view === "settings" && renderSettings()}
-      {state.view === "statistics" && (
-        <Statistics
-          onBack={() => setState((prev) => ({ ...prev, view: "home" }))}
-        />
-      )}
-      {state.view === "special-items" && (
-        <SpecialItems
-          onBack={() => setState((prev) => ({ ...prev, view: "home" }))}
-        />
-      )}
+      <TitleBar />
+      <div style={{ paddingTop: "32px" }}>
+        {state.view === "start" && renderStart()}
+        {state.view === "home" && renderHome()}
+        {state.view === "coffee-form" && renderCoffeeForm()}
+        {state.view === "pokedex" && renderPokedex()}
+        {state.view === "settings" && renderSettings()}
+        {state.view === "statistics" && (
+          <Statistics
+            onBack={() => setState((prev) => ({ ...prev, view: "home" }))}
+          />
+        )}
+        {state.view === "special-items" && (
+          <SpecialItems
+            onBack={() => setState((prev) => ({ ...prev, view: "home" }))}
+          />
+        )}
+        {state.view === "brew-success" && renderBrewSuccess()}
+      </div>
     </div>
   );
 };

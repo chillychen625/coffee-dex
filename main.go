@@ -46,10 +46,17 @@ func main() {
 		if mysqlStore, ok := store.(*storage.MySQLStorage); ok {
 			// Access the private db field - we'll need to modify MySQLStorage to expose this
 			// For now, we'll create a new connection
+			log.Printf("INFO: Opening MySQL connection for Pokemon/Brewer storage")
 			db, err = openMySQLConnection(*mysqlHost, *mysqlUser, *mysqlPassword, *mysqlDB)
 			if err != nil {
 				log.Fatalf("Failed to create Pokemon DB connection: %v", err)
 			}
+			
+			// Test the connection
+			if err := db.Ping(); err != nil {
+				log.Fatalf("Failed to ping Pokemon DB connection: %v", err)
+			}
+			log.Printf("INFO: MySQL connection for Pokemon/Brewer storage successful")
 			
 			pokemonStorage = storage.NewMySQLPokemonStorage(db)
 			
@@ -103,8 +110,10 @@ func main() {
 		statisticsService = service.NewStatisticsService(store, pokemonStorage)
 		
 		// Initialize brewer service (requires MySQL storage)
+		log.Printf("INFO: Initializing brewer storage with MySQL connection")
 		brewerStorage = storage.NewMySQLBrewerStorage(db, store)
 		brewerService = service.NewBrewerService(brewerStorage)
+		log.Printf("INFO: Brewer service initialized successfully")
 	} else {
 		fmt.Println("Pokemon features disabled (requires MySQL storage)")
 	}
@@ -235,13 +244,6 @@ func main() {
 			}
 		})
 		
-		mux.HandleFunc("/brewers/with-recipes", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodGet {
-				brewerHandler.GetAllBrewersWithRecipes(w, r)
-			} else {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
 		
 		mux.HandleFunc("/brewers", func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
@@ -264,17 +266,6 @@ func main() {
 			
 			brewerID := parts[0]
 			
-			// Handle /brewers/{id}/recipes/{coffee_id}
-			if len(parts) == 3 && parts[1] == "recipes" {
-				r.SetPathValue("id", brewerID)
-				r.SetPathValue("coffee_id", parts[2])
-				if r.Method == http.MethodDelete {
-					brewerHandler.RemoveRecipeFromBrewer(w, r)
-					return
-				}
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
 			
 			// Handle /brewers/{id}/standalone-recipes/{recipe_id}
 			if len(parts) == 3 && parts[1] == "standalone-recipes" {
@@ -299,19 +290,6 @@ func main() {
 				return
 			}
 			
-			// Handle /brewers/{id}/recipes
-			if len(parts) == 2 && parts[1] == "recipes" {
-				r.SetPathValue("id", brewerID)
-				if r.Method == http.MethodGet {
-					brewerHandler.GetBrewerWithRecipes(w, r)
-					return
-				} else if r.Method == http.MethodPost {
-					brewerHandler.AddRecipeToBrewer(w, r)
-					return
-				}
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
 			
 			// Handle /brewers/{id}
 			if len(parts) == 1 {

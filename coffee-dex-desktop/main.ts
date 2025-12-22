@@ -5,22 +5,21 @@ let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 320, // Pokedex-style width
-    height: 800, // Double the original height (was 240)
-    minWidth: 320,
-    minHeight: 480,
-    maxWidth: 400,
-    maxHeight: 800,
+    width: 640,
+    height: 640,
+    minWidth: 640,
+    minHeight: 640,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "preload.js"),
     },
-    frame: false, // Custom frame
-    transparent: true, // Rounded corners effect
-    backgroundColor: "#00000000",
+    frame: false, // Custom frame with title bar
+    transparent: false,
+    backgroundColor: "#9bbc0f",
     title: "CoffeeDex",
     icon: path.join(__dirname, "static/icon.png"),
+    resizable: true,
   });
 
   mainWindow.loadFile("dist/index.html");
@@ -122,4 +121,17 @@ ipcMain.handle("get-app-version", () => {
 ipcMain.handle("show-error", (event: any, title: string, message: string) => {
   const { dialog } = require("electron");
   return dialog.showErrorBox(title, message);
+});
+
+// Window control IPC handlers
+ipcMain.on("minimize-window", () => {
+  if (mainWindow) {
+    mainWindow.minimize();
+  }
+});
+
+ipcMain.on("close-window", () => {
+  if (mainWindow) {
+    mainWindow.close();
+  }
 });

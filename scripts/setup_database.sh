@@ -41,6 +41,22 @@ SHOW DATABASES;
 EOF
 
 echo ""
+echo "✅ Database and user created!"
+echo ""
+
+# Create tables from schema
+echo "📦 Creating database tables..."
+if [ -f "../sql/schema.sql" ]; then
+    mysql -h"$DB_HOST" -uroot "$DB_NAME" < ../sql/schema.sql
+    echo "✅ Tables created from schema.sql"
+elif [ -f "sql/schema.sql" ]; then
+    mysql -h"$DB_HOST" -uroot "$DB_NAME" < sql/schema.sql
+    echo "✅ Tables created from schema.sql"
+else
+    echo "⚠️  Warning: sql/schema.sql not found. Tables will be created by the application."
+fi
+
+echo ""
 echo "✅ Database setup complete!"
 echo ""
 echo "📋 Connection Details:"

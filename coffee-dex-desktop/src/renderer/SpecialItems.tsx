@@ -477,9 +477,14 @@ const SpecialItems: React.FC<SpecialItemsProps> = ({ onBack }) => {
                       onClick={() =>
                         handleRemoveRecipe(selectedBrewer.id, recipe.id)
                       }
-                      style={{ fontSize: "10px", padding: "4px 8px" }}
+                      style={{
+                        fontSize: "10px",
+                        padding: "4px 8px",
+                        background: "#cc0000",
+                        color: "white",
+                      }}
                     >
-                      Remove
+                      🗑️ Remove
                     </button>
                   </div>
                 </div>

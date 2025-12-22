@@ -33,6 +33,7 @@ type Coffee struct {
 	Name string `json:"name"`
 	Origin string `json:"origin"`
 	Roaster string `json:"roaster"`
+	Variety string `json:"variety"`
 	RoastLevel string `json:"roast_level"`
 	ProcessingMethod string `json:"processing_method"`
 	TastingNotes [5]string `json:"tasting_notes"`

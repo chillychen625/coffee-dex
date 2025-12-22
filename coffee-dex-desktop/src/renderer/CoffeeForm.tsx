@@ -201,6 +201,15 @@ const CoffeeForm: React.FC<CoffeeFormProps> = ({
           ))}
         </datalist>
         <input
+          type="text"
+          className="pokemon-input mb-sm"
+          placeholder="Variety (e.g., Geisha, Bourbon)"
+          value={formData.variety || ""}
+          onChange={(e) =>
+            setFormData({ ...formData, variety: e.target.value })
+          }
+        />
+        <input
           type="number"
           className="pokemon-input"
           placeholder="Rating (0-10)"

@@ -39,6 +39,7 @@ export interface Coffee {
   name: string;
   origin: string;
   roaster: string;
+  variety: string;
   roast_level:
     | "light"
     | "medium"

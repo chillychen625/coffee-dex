@@ -51,6 +51,9 @@ body {
   image-rendering: pixelated;
   -webkit-font-smoothing: none;
   font-size: 12px;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
 }
 
 /* Pokemon Frame - The classic border from the games */
@@ -474,14 +477,23 @@ body {
 /* Screen/Container */
 .pokemon-screen {
   background: var(--gb-lightest);
-  min-height: 100vh;
-  padding: var(--spacing-lg);
+  min-height: calc(100vh - 32px);
+  height: calc(100vh - 32px);
+  padding: var(--spacing-md);
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .pokemon-screen.centered {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Pokemon frame adjustments for square layout */
+.pokemon-frame {
+  max-width: 100%;
+  width: 100%;
 }
 
 /* Dialogue Box Animation */
