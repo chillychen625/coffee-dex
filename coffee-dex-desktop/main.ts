@@ -7,7 +7,8 @@ let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
 
 function startBackend(): void {
-  const goProjectDir = path.join(__dirname, "..");
+  // __dirname is dist/, go up two levels to reach the Go project root
+  const goProjectDir = path.join(__dirname, "../..");
 
   // Check for pre-built binary first (for production), then fall back to go run
   const binaryPath = path.join(goProjectDir, "bin", "coffee-dex");

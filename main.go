@@ -213,37 +213,6 @@ func main() {
 				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			}
 		})
-
-		// Coffee-specific brew routes
-		mux.HandleFunc("/coffees/", func(w http.ResponseWriter, r *http.Request) {
-			// Extract coffee_id from path: /coffees/{id}/...
-			path := strings.TrimPrefix(r.URL.Path, "/coffees/")
-			parts := strings.Split(path, "/")
-			if len(parts) < 2 {
-				http.NotFound(w, r)
-				return
-			}
-
-			coffeeID := parts[0]
-			r.SetPathValue("coffee_id", coffeeID)
-
-			switch parts[1] {
-			case "brews":
-				if r.Method == http.MethodGet {
-					brewHandler.GetBrewsForCoffee(w, r)
-				} else {
-					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				}
-			case "brew-progress":
-				if r.Method == http.MethodGet {
-					brewHandler.GetBrewProgress(w, r)
-				} else {
-					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				}
-			default:
-				http.NotFound(w, r)
-			}
-		})
 	}
 
 	// Pokemon routes (if Pokemon service is available)
@@ -393,15 +362,45 @@ func main() {
 		})
 	}
 	
-	// Route to /coffees/{id}
+	// Route to /coffees/{id} and /coffees/{id}/brews, /coffees/{id}/brew-progress
 	mux.HandleFunc("/coffees/", func(w http.ResponseWriter, r *http.Request) {
-		id := strings.TrimPrefix(r.URL.Path, "/coffees/")
-		if id == "" || strings.Contains(id, "/") {
+		path := strings.TrimPrefix(r.URL.Path, "/coffees/")
+		parts := strings.Split(path, "/")
+		if len(parts) == 0 || parts[0] == "" {
 			http.NotFound(w, r)
 			return
 		}
-		
-		r.SetPathValue("id", id)
+
+		coffeeID := parts[0]
+
+		// Handle sub-routes like /coffees/{id}/brews or /coffees/{id}/brew-progress
+		if len(parts) >= 2 && parts[1] != "" {
+			if brewHandler == nil {
+				http.NotFound(w, r)
+				return
+			}
+			r.SetPathValue("coffee_id", coffeeID)
+			switch parts[1] {
+			case "brews":
+				if r.Method == http.MethodGet {
+					brewHandler.GetBrewsForCoffee(w, r)
+				} else {
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
+			case "brew-progress":
+				if r.Method == http.MethodGet {
+					brewHandler.GetBrewProgress(w, r)
+				} else {
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
+			default:
+				http.NotFound(w, r)
+			}
+			return
+		}
+
+		// Handle /coffees/{id} for coffee CRUD
+		r.SetPathValue("id", coffeeID)
 		switch r.Method {
 		case http.MethodGet:
 			coffeeHandler.GetCoffee(w, r)

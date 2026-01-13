@@ -129,14 +129,25 @@ const App: React.FC = () => {
   }, [state.view, state.currentPokedexIndex, state.pokedex.length]);
 
   const checkBackend = async () => {
-    const connected = await api.healthCheck();
-    setState((prev) => ({ ...prev, backendConnected: connected }));
-    if (!connected) {
-      setState((prev) => ({
-        ...prev,
-        error: "Backend not connected. Please start the server.",
-      }));
+    const maxRetries = 30;
+    const retryDelay = 500; // ms
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      const connected = await api.healthCheck();
+      if (connected) {
+        setState((prev) => ({ ...prev, backendConnected: true, error: null }));
+        return;
+      }
+      // Wait before next retry
+      await new Promise((resolve) => setTimeout(resolve, retryDelay));
     }
+
+    // All retries exhausted
+    setState((prev) => ({
+      ...prev,
+      backendConnected: false,
+      error: "Backend not connected. Please start the server.",
+    }));
   };
 
   const loadCoffees = async () => {
