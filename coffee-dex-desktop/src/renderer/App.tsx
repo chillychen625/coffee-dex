@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../services/api";
-import { Coffee, CoffeePokemon, TastingTraits } from "../types/pokemon";
+import {
+  Coffee,
+  CoffeePokemon,
+  TastingTraits,
+  Brew,
+  BrewProgress,
+} from "../types/pokemon";
 import "../styles/pokemon-gameboy.css";
 import CoffeeForm from "./CoffeeForm";
+import BrewForm from "./BrewForm";
 import Statistics from "./Statistics";
 import SpecialItems from "./SpecialItems";
 import TitleBar from "../components/TitleBar";
@@ -12,6 +19,9 @@ interface AppState {
     | "start"
     | "home"
     | "coffee-form"
+    | "coffee-list"
+    | "coffee-detail"
+    | "brew-form"
     | "pokedex"
     | "settings"
     | "statistics"
@@ -21,18 +31,43 @@ interface AppState {
   recentCoffees: Coffee[];
   currentCoffee: Coffee | null;
   currentPokemon: CoffeePokemon | null;
+  currentBrews: Brew[];
+  brewProgress: BrewProgress | null;
   pokedex: CoffeePokemon[];
-  currentPokedexIndex: number; // Current position in pokedex array
+  currentPokedexIndex: number;
   loading: boolean;
   error: string | null;
   backendConnected: boolean;
-  formStep: number; // 1: Basic Info, 2: Roast/Process, 3: Tasting Notes, 4: Tasting Traits 1, 5: Tasting Traits 2, 6: Recipe/Timing
-  pokedexPage: number; // 1: Coffee Details, 2: LLM Analysis
-  colorTheme: "red" | "blue" | "yellow"; // Game Boy Color theme
-  isQuickBrew: boolean; // Whether we're in quick brew mode (subsequent brew of same coffee)
-  pokedexSort: "date" | "rating" | "name" | "confidence"; // Sort order for pokedex
-  justCreatedPokemon: boolean; // Track if we just created a new Pokemon
+  formStep: number;
+  pokedexPage: number;
+  colorTheme: "red" | "blue" | "yellow";
+  pokedexSort: "date" | "rating" | "name" | "confidence";
+  justCreatedPokemon: boolean;
+  promptFirstBrew: boolean; // After creating coffee, prompt to add first brew
 }
+
+const defaultBrewFormData = (): Partial<Brew> => ({
+  coffee_id: "",
+  tasting_notes: ["", "", "", "", ""],
+  rating: 5,
+  recipe: [],
+  dripper: "",
+  end_time: { minutes: 0, seconds: 0 },
+  tasting_traits: {
+    berry_intensity: 5,
+    stonefruit_intensity: 5,
+    roast_intensity: 5,
+    citrus_fruits_intensity: 5,
+    bitterness: 5,
+    florality: 5,
+    spice: 5,
+    sweetness: 5,
+    aromatic_intensity: 5,
+    savory: 5,
+    body: 5,
+    cleanliness: 5,
+  } as TastingTraits,
+});
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -41,6 +76,8 @@ const App: React.FC = () => {
     recentCoffees: [],
     currentCoffee: null,
     currentPokemon: null,
+    currentBrews: [],
+    brewProgress: null,
     pokedex: [],
     currentPokedexIndex: 0,
     loading: false,
@@ -49,43 +86,23 @@ const App: React.FC = () => {
     formStep: 1,
     pokedexPage: 1,
     colorTheme: "blue",
-    isQuickBrew: false,
     pokedexSort: "date",
     justCreatedPokemon: false,
+    promptFirstBrew: false,
   });
 
-  const [selectedBrewerId, setSelectedBrewerId] = useState<string>("");
-
-  const [formData, setFormData] = useState<Partial<Coffee>>({
+  const [coffeeFormData, setCoffeeFormData] = useState<Partial<Coffee>>({
     name: "",
     origin: "",
     roaster: "",
     variety: "",
     roast_level: "medium",
     processing_method: "washed",
-    tasting_notes: ["", "", "", "", ""],
-    rating: 5,
-    recipe: [],
-    dripper: "",
-    end_time: {
-      minutes: 0,
-      seconds: 0,
-    },
-    tasting_traits: {
-      berry_intensity: 5,
-      stonefruit_intensity: 5,
-      roast_intensity: 5,
-      citrus_fruits_intensity: 5,
-      bitterness: 5,
-      florality: 5,
-      spice: 5,
-      sweetness: 5,
-      aromatic_intensity: 5,
-      savory: 5,
-      body: 5,
-      cleanliness: 5,
-    } as TastingTraits,
   });
+
+  const [brewFormData, setBrewFormData] = useState<Partial<Brew>>(
+    defaultBrewFormData()
+  );
 
   // Check backend connection on mount
   useEffect(() => {
@@ -97,10 +114,8 @@ const App: React.FC = () => {
     if (state.view !== "pokedex") return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Prevent default only for arrow keys we're handling
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
         e.preventDefault();
-
         if (e.key === "ArrowLeft") {
           navigatePokedex("prev");
         } else if (e.key === "ArrowRight") {
@@ -124,15 +139,66 @@ const App: React.FC = () => {
     }
   };
 
+  const loadCoffees = async () => {
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const coffees = await api.getCoffees();
+      setState((prev) => ({
+        ...prev,
+        coffees,
+        loading: false,
+      }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        error: `Failed to load coffees: ${error}`,
+        loading: false,
+      }));
+    }
+  };
+
+  const loadCoffeeDetail = async (coffeeId: string) => {
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const [coffee, brews, progress] = await Promise.all([
+        api.getCoffee(coffeeId),
+        api.getBrewsForCoffee(coffeeId),
+        api.getBrewProgress(coffeeId),
+      ]);
+
+      // Try to load Pokemon if exists
+      let pokemon: CoffeePokemon | null = null;
+      if (progress.has_pokemon) {
+        try {
+          pokemon = await api.getCoffeePokemon(coffeeId);
+        } catch {
+          // No Pokemon yet
+        }
+      }
+
+      setState((prev) => ({
+        ...prev,
+        currentCoffee: coffee,
+        currentBrews: brews,
+        brewProgress: progress,
+        currentPokemon: pokemon,
+        loading: false,
+      }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        error: `Failed to load coffee details: ${error}`,
+        loading: false,
+      }));
+    }
+  };
+
   const loadPokedex = async () => {
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
       let pokedex = await api.getPokedex();
-
-      // Apply sorting
       pokedex = sortPokedex(pokedex, state.pokedexSort);
 
-      // Fetch the first coffee's details if available
       if (pokedex.length > 0) {
         const firstPokemon = pokedex[0];
         const coffee = await api.getCoffee(firstPokemon.coffee_id);
@@ -163,12 +229,7 @@ const App: React.FC = () => {
     const sorted = [...pokedex];
     switch (sortBy) {
       case "date":
-        // Newest first (assuming higher index = newer)
         return sorted.reverse();
-      case "rating":
-        // Need to fetch coffee data - for now just return as-is
-        // This would require fetching all coffees first
-        return sorted;
       case "name":
         return sorted.sort((a, b) =>
           a.pokemon_name.localeCompare(b.pokemon_name)
@@ -186,10 +247,8 @@ const App: React.FC = () => {
     sortBy: "date" | "rating" | "name" | "confidence"
   ) => {
     setState((prev) => ({ ...prev, pokedexSort: sortBy, loading: true }));
-
     const sortedPokedex = sortPokedex(state.pokedex, sortBy);
 
-    // Load the first coffee from sorted list
     if (sortedPokedex.length > 0) {
       try {
         const firstPokemon = sortedPokedex[0];
@@ -251,71 +310,52 @@ const App: React.FC = () => {
     }
   };
 
-  const resetForm = () => {
-    setFormData({
+  const resetCoffeeForm = () => {
+    setCoffeeFormData({
       name: "",
       origin: "",
       roaster: "",
       variety: "",
       roast_level: "medium",
       processing_method: "washed",
-      tasting_notes: ["", "", "", "", ""],
-      rating: 5,
-      recipe: [],
-      dripper: "",
-      end_time: {
-        minutes: 0,
-        seconds: 0,
-      },
-      tasting_traits: {
-        berry_intensity: 5,
-        stonefruit_intensity: 5,
-        roast_intensity: 5,
-        citrus_fruits_intensity: 5,
-        bitterness: 5,
-        florality: 5,
-        spice: 5,
-        sweetness: 5,
-        aromatic_intensity: 5,
-        savory: 5,
-        body: 5,
-        cleanliness: 5,
-      } as TastingTraits,
     });
-    setSelectedBrewerId("");
     setState((prev) => ({
       ...prev,
       formStep: 1,
-      isQuickBrew: false,
       error: null,
     }));
   };
 
-  const handleCoffeeSubmit = async (coffee: Partial<Coffee>) => {
+  const resetBrewForm = () => {
+    setBrewFormData(defaultBrewFormData());
+    setState((prev) => ({
+      ...prev,
+      formStep: 1,
+      error: null,
+    }));
+  };
+
+  const handleCoffeeSubmit = async () => {
+    if (!coffeeFormData.name || !coffeeFormData.origin) {
+      setState((prev) => ({
+        ...prev,
+        error: "Please fill in required fields (name, origin)",
+      }));
+      return;
+    }
+
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      if (state.isQuickBrew) {
-        // Quick brew: just save the entry, no Pokemon generation
-        const newCoffee = await api.createBrewEntry(coffee);
-
-        setState((prev) => ({
-          ...prev,
-          currentCoffee: newCoffee,
-          loading: false,
-          view: "brew-success",
-        }));
-      } else {
-        // Full new coffee: generate Pokemon
-        const newCoffee = await api.createCoffee(coffee);
-
-        setState((prev) => ({
-          ...prev,
-          currentCoffee: newCoffee,
-          loading: false,
-        }));
-        setSelectedBrewerId("");
-        await handleGeneratePokemon(newCoffee.id);
-      }
+      const newCoffee = await api.createCoffee(coffeeFormData);
+      setState((prev) => ({
+        ...prev,
+        currentCoffee: newCoffee,
+        loading: false,
+        promptFirstBrew: true,
+        view: "coffee-detail",
+      }));
+      resetCoffeeForm();
+      await loadCoffeeDetail(newCoffee.id);
     } catch (error) {
       setState((prev) => ({
         ...prev,
@@ -325,10 +365,41 @@ const App: React.FC = () => {
     }
   };
 
-  const handleGeneratePokemon = async (coffeeId: string) => {
+  const handleBrewSubmit = async () => {
+    if (!state.currentCoffee) return;
+
     setState((prev) => ({ ...prev, loading: true, error: null }));
     try {
-      const pokemon = await api.generatePokemon(coffeeId);
+      const brewData = {
+        ...brewFormData,
+        coffee_id: state.currentCoffee.id,
+      };
+      await api.createBrew(brewData);
+
+      // Reload coffee detail to update brew count
+      await loadCoffeeDetail(state.currentCoffee.id);
+      resetBrewForm();
+      setState((prev) => ({
+        ...prev,
+        loading: false,
+        view: "coffee-detail",
+        promptFirstBrew: false,
+      }));
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        error: `Failed to create brew: ${error}`,
+        loading: false,
+      }));
+    }
+  };
+
+  const handleGeneratePokemon = async () => {
+    if (!state.currentCoffee) return;
+
+    setState((prev) => ({ ...prev, loading: true, error: null }));
+    try {
+      const pokemon = await api.generatePokemon(state.currentCoffee.id);
       setState((prev) => ({
         ...prev,
         currentPokemon: pokemon,
@@ -336,6 +407,8 @@ const App: React.FC = () => {
         loading: false,
         justCreatedPokemon: true,
       }));
+      // Reload pokedex
+      await loadPokedex();
     } catch (error) {
       setState((prev) => ({
         ...prev,
@@ -356,7 +429,7 @@ const App: React.FC = () => {
             className="pokemon-title"
             style={{ fontSize: "24px", marginBottom: "60px" }}
           >
-            ☕ COFFEEDEX
+            COFFEEDEX
           </h1>
           <button
             className="pokemon-button"
@@ -379,7 +452,7 @@ const App: React.FC = () => {
         className="pokemon-frame"
         style={{ maxWidth: "600px", margin: "0 auto" }}
       >
-        <h1 className="pokemon-title">☕ COFFEEDEX</h1>
+        <h1 className="pokemon-title">COFFEEDEX</h1>
         <p className="pokemon-subtitle">Gotta Brew 'Em All!</p>
 
         {!state.backendConnected && (
@@ -396,7 +469,7 @@ const App: React.FC = () => {
         )}
 
         <div className="pokemon-textbox">
-          Transform your coffee tasting notes into Pokemon!
+          Log 5 brews of a coffee to generate its Pokemon!
         </div>
 
         <div>
@@ -412,10 +485,11 @@ const App: React.FC = () => {
             <button
               className="pokemon-button"
               onClick={() => {
+                resetCoffeeForm();
                 setState((prev) => ({
                   ...prev,
                   view: "coffee-form",
-                  isQuickBrew: false,
+                  formStep: 1,
                 }));
               }}
               disabled={!state.backendConnected}
@@ -429,15 +503,24 @@ const App: React.FC = () => {
                 await loadRecentCoffees();
                 setState((prev) => ({
                   ...prev,
-                  view: "coffee-form",
-                  isQuickBrew: true,
-                  formStep: 1,
+                  view: "coffee-list",
                 }));
               }}
               disabled={!state.backendConnected}
               style={{ fontSize: "11px", padding: "10px" }}
             >
               Quick Brew
+            </button>
+            <button
+              className="pokemon-button"
+              onClick={async () => {
+                await loadCoffees();
+                setState((prev) => ({ ...prev, view: "coffee-list" }));
+              }}
+              disabled={!state.backendConnected}
+              style={{ fontSize: "11px", padding: "10px" }}
+            >
+              View Coffees
             </button>
             <button
               className="pokemon-button"
@@ -448,7 +531,7 @@ const App: React.FC = () => {
               disabled={!state.backendConnected}
               style={{ fontSize: "11px", padding: "10px" }}
             >
-              View Pokedex
+              Pokedex
             </button>
             <button
               className="pokemon-button"
@@ -470,124 +553,357 @@ const App: React.FC = () => {
             >
               Brewers
             </button>
-            <button
-              className="pokemon-button"
-              onClick={() =>
-                setState((prev) => ({ ...prev, view: "settings" }))
-              }
-              disabled={!state.backendConnected}
-              style={{ fontSize: "11px", padding: "10px" }}
-            >
-              Settings
-            </button>
           </div>
         </div>
       </div>
     </div>
   );
 
-  const renderSettings = () => (
-    <div className="pokemon-screen centered">
-      <div
-        className="pokemon-frame"
-        style={{ maxWidth: "600px", margin: "0 auto" }}
-      >
-        <button
-          className="pokemon-button mb-md"
-          onClick={() => setState((prev) => ({ ...prev, view: "home" }))}
-        >
-          ← Back
-        </button>
-
-        <h2 className="pokemon-title" style={{ fontSize: "14px" }}>
-          SETTINGS
-        </h2>
-
-        <div className="pokemon-textbox mb-md">
-          <div style={{ fontWeight: "bold", marginBottom: "8px" }}>
-            Color Theme
-          </div>
-          <div style={{ fontSize: "10px", marginBottom: "12px" }}>
-            Select your Game Boy Color theme:
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <button
-              className="pokemon-button"
-              onClick={() =>
-                setState((prev) => ({ ...prev, colorTheme: "blue" }))
-              }
-              style={{
-                background: state.colorTheme === "blue" ? "#0066cc" : undefined,
-                color: state.colorTheme === "blue" ? "white" : undefined,
-              }}
-            >
-              Blue {state.colorTheme === "blue" ? "✓" : ""}
-            </button>
-            <button
-              className="pokemon-button"
-              onClick={() =>
-                setState((prev) => ({ ...prev, colorTheme: "red" }))
-              }
-              style={{
-                background: state.colorTheme === "red" ? "#cc0000" : undefined,
-                color: state.colorTheme === "red" ? "white" : undefined,
-              }}
-            >
-              Red {state.colorTheme === "red" ? "✓" : ""}
-            </button>
-            <button
-              className="pokemon-button"
-              onClick={() =>
-                setState((prev) => ({ ...prev, colorTheme: "yellow" }))
-              }
-              style={{
-                background:
-                  state.colorTheme === "yellow" ? "#ccaa00" : undefined,
-                color: state.colorTheme === "yellow" ? "white" : undefined,
-              }}
-            >
-              Yellow {state.colorTheme === "yellow" ? "✓" : ""}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderCoffeeForm = () => {
-    const handleSubmit = () => {
-      if (!formData.name || !formData.origin) {
-        setState((prev) => ({
-          ...prev,
-          error: "Please fill in required fields (name, origin)",
-        }));
-        return;
-      }
-      handleCoffeeSubmit(formData);
-    };
+  const renderCoffeeList = () => {
+    const coffees =
+      state.coffees.length > 0 ? state.coffees : state.recentCoffees;
 
     return (
-      <CoffeeForm
-        formData={formData}
-        setFormData={setFormData}
+      <div className="pokemon-screen">
+        <div
+          className="pokemon-frame"
+          style={{ maxWidth: "600px", margin: "0 auto" }}
+        >
+          <button
+            className="pokemon-button mb-md"
+            onClick={() => setState((prev) => ({ ...prev, view: "home" }))}
+          >
+            Back
+          </button>
+
+          <h2 className="pokemon-title" style={{ fontSize: "14px" }}>
+            COFFEES
+          </h2>
+
+          {coffees.length === 0 ? (
+            <div className="pokemon-textbox text-center">
+              <div style={{ fontSize: "10px" }}>No coffees yet!</div>
+              <div style={{ fontSize: "9px", marginTop: "8px" }}>
+                Add your first coffee to get started.
+              </div>
+            </div>
+          ) : (
+            <div style={{ maxHeight: "400px", overflowY: "auto" }}>
+              {coffees.map((coffee) => (
+                <button
+                  key={coffee.id}
+                  className="pokemon-textbox mb-sm"
+                  style={{
+                    width: "100%",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    border: "2px solid #000",
+                  }}
+                  onClick={async () => {
+                    await loadCoffeeDetail(coffee.id);
+                    setState((prev) => ({ ...prev, view: "coffee-detail" }));
+                  }}
+                >
+                  <div style={{ fontWeight: "bold", fontSize: "11px" }}>
+                    {coffee.name}
+                  </div>
+                  <div style={{ fontSize: "9px" }}>
+                    {coffee.origin} | {coffee.roaster}
+                  </div>
+                  <div style={{ fontSize: "8px", marginTop: "4px" }}>
+                    {coffee.roast_level} | {coffee.processing_method}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCoffeeDetail = () => {
+    if (!state.currentCoffee || !state.brewProgress) {
+      return (
+        <div className="pokemon-screen">
+          <div
+            className="pokemon-frame"
+            style={{ maxWidth: "600px", margin: "0 auto" }}
+          >
+            <div className="pokemon-textbox">Loading...</div>
+          </div>
+        </div>
+      );
+    }
+
+    const coffee = state.currentCoffee;
+    const progress = state.brewProgress;
+    const brews = state.currentBrews;
+
+    const progressPercent = Math.min(
+      (progress.count / progress.required) * 100,
+      100
+    );
+    const canGenerate = progress.can_generate_pokemon && !progress.has_pokemon;
+
+    return (
+      <div className="pokemon-screen">
+        <div
+          className="pokemon-frame"
+          style={{ maxWidth: "600px", margin: "0 auto" }}
+        >
+          <button
+            className="pokemon-button mb-md"
+            onClick={() =>
+              setState((prev) => ({
+                ...prev,
+                view: "coffee-list",
+                promptFirstBrew: false,
+              }))
+            }
+          >
+            Back
+          </button>
+
+          <h2
+            className="pokemon-title"
+            style={{ fontSize: "14px", marginBottom: "8px" }}
+          >
+            {coffee.name.toUpperCase()}
+          </h2>
+
+          <div className="pokemon-textbox mb-sm" style={{ fontSize: "10px" }}>
+            <div>
+              <strong>Origin:</strong> {coffee.origin}
+            </div>
+            <div>
+              <strong>Roaster:</strong> {coffee.roaster}
+            </div>
+            {coffee.variety && (
+              <div>
+                <strong>Variety:</strong> {coffee.variety}
+              </div>
+            )}
+            <div>
+              <strong>Roast:</strong> {coffee.roast_level}
+            </div>
+            <div>
+              <strong>Process:</strong> {coffee.processing_method}
+            </div>
+          </div>
+
+          {/* Brew Progress Bar */}
+          <div className="pokemon-textbox mb-sm">
+            <div
+              style={{
+                fontWeight: "bold",
+                marginBottom: "8px",
+                fontSize: "10px",
+              }}
+            >
+              BREW PROGRESS
+            </div>
+            <div className="pokemon-stat-row">
+              <div className="pokemon-stat-bar" style={{ flex: 1 }}>
+                <div
+                  className={`pokemon-stat-fill ${
+                    progress.has_pokemon
+                      ? "high"
+                      : canGenerate
+                      ? "medium"
+                      : "low"
+                  }`}
+                  style={{ width: `${progressPercent}%` }}
+                ></div>
+              </div>
+              <div className="pokemon-stat-value" style={{ fontSize: "10px" }}>
+                {progress.count}/{progress.required}
+              </div>
+            </div>
+            {progress.has_pokemon && (
+              <div
+                style={{
+                  fontSize: "9px",
+                  marginTop: "4px",
+                  color: "#00aa00",
+                  fontWeight: "bold",
+                }}
+              >
+                Pokemon Captured!
+              </div>
+            )}
+            {canGenerate && (
+              <div
+                style={{
+                  fontSize: "9px",
+                  marginTop: "4px",
+                  color: "#aa6600",
+                  fontWeight: "bold",
+                }}
+              >
+                Ready to Generate!
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div
+            style={{
+              display: "flex",
+              gap: "8px",
+              marginBottom: "12px",
+            }}
+          >
+            <button
+              className="pokemon-button"
+              style={{ flex: 1, fontSize: "10px", padding: "8px" }}
+              onClick={() => {
+                resetBrewForm();
+                setBrewFormData((prev) => ({
+                  ...prev,
+                  coffee_id: coffee.id,
+                }));
+                setState((prev) => ({
+                  ...prev,
+                  view: "brew-form",
+                  formStep: 1,
+                }));
+              }}
+            >
+              Log Brew
+            </button>
+            {canGenerate && (
+              <button
+                className="pokemon-button"
+                style={{
+                  flex: 1,
+                  fontSize: "10px",
+                  padding: "8px",
+                  background: "#ffcc00",
+                }}
+                onClick={handleGeneratePokemon}
+              >
+                Generate Pokemon!
+              </button>
+            )}
+            {progress.has_pokemon && state.currentPokemon && (
+              <button
+                className="pokemon-button"
+                style={{ flex: 1, fontSize: "10px", padding: "8px" }}
+                onClick={() => {
+                  setState((prev) => ({ ...prev, view: "pokedex" }));
+                }}
+              >
+                View Pokemon
+              </button>
+            )}
+          </div>
+
+          {/* Prompt first brew message */}
+          {state.promptFirstBrew && brews.length === 0 && (
+            <div
+              className="pokemon-textbox mb-sm"
+              style={{
+                background: "#ffffcc",
+                borderColor: "#aaaa00",
+                fontSize: "10px",
+              }}
+            >
+              Coffee created! Log your first brew to start tracking.
+            </div>
+          )}
+
+          {/* Brews List */}
+          <div className="pokemon-textbox" style={{ fontSize: "9px" }}>
+            <div style={{ fontWeight: "bold", marginBottom: "8px" }}>
+              BREWS ({brews.length})
+            </div>
+            {brews.length === 0 ? (
+              <div style={{ fontSize: "9px", opacity: 0.7 }}>
+                No brews yet. Log your first brew!
+              </div>
+            ) : (
+              <div style={{ maxHeight: "150px", overflowY: "auto" }}>
+                {brews.map((brew, i) => (
+                  <div
+                    key={brew.id}
+                    style={{
+                      padding: "4px 0",
+                      borderBottom:
+                        i < brews.length - 1 ? "1px solid #ccc" : "none",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span>
+                        Rating: {brew.rating}/10 | {brew.dripper || "No dripper"}
+                      </span>
+                      <span>
+                        {brew.end_time.minutes}:{String(brew.end_time.seconds).padStart(2, "0")}
+                      </span>
+                    </div>
+                    {brew.tasting_notes.filter((n) => n).length > 0 && (
+                      <div style={{ fontSize: "8px", opacity: 0.8 }}>
+                        {brew.tasting_notes.filter((n) => n).join(", ")}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderBrewForm = () => {
+    if (!state.currentCoffee) {
+      return (
+        <div className="pokemon-screen">
+          <div
+            className="pokemon-frame"
+            style={{ maxWidth: "600px", margin: "0 auto" }}
+          >
+            <div className="pokemon-textbox">No coffee selected</div>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <BrewForm
+        coffeeId={state.currentCoffee.id}
+        coffee={state.currentCoffee}
+        formData={brewFormData}
+        setFormData={setBrewFormData}
         formStep={state.formStep}
         setFormStep={(step) =>
           setState((prev) => ({ ...prev, formStep: step }))
         }
-        onSubmit={handleSubmit}
+        onSubmit={handleBrewSubmit}
         onBack={() => {
-          resetForm();
-          setState((prev) => ({ ...prev, view: "home" }));
+          resetBrewForm();
+          setState((prev) => ({ ...prev, view: "coffee-detail" }));
         }}
         error={state.error}
-        isQuickBrew={state.isQuickBrew}
-        recentCoffees={state.recentCoffees}
-        selectedBrewerId={selectedBrewerId}
-        onBrewerSelect={setSelectedBrewerId}
       />
     );
   };
+
+  const renderCoffeeForm = () => (
+    <CoffeeForm
+      formData={coffeeFormData}
+      setFormData={setCoffeeFormData}
+      formStep={state.formStep}
+      setFormStep={(step) => setState((prev) => ({ ...prev, formStep: step }))}
+      onSubmit={handleCoffeeSubmit}
+      onBack={() => {
+        resetCoffeeForm();
+        setState((prev) => ({ ...prev, view: "home" }));
+      }}
+      error={state.error}
+    />
+  );
 
   const renderPokedex = () => {
     if (state.loading) {
@@ -597,7 +913,7 @@ const App: React.FC = () => {
             className="pokemon-frame"
             style={{ maxWidth: "600px", margin: "0 auto" }}
           >
-            <div className="pokemon-loading">Generating Pokemon</div>
+            <div className="pokemon-loading">Loading Pokedex</div>
           </div>
         </div>
       );
@@ -614,16 +930,15 @@ const App: React.FC = () => {
               className="pokemon-button mb-md"
               onClick={() => setState((prev) => ({ ...prev, view: "home" }))}
             >
-              ← Back
+              Back
             </button>
             <h2 className="pokemon-title" style={{ fontSize: "14px" }}>
               COFFEEDEX
             </h2>
             <div className="pokemon-textbox text-center">
-              <div style={{ fontSize: "10px" }}>📝</div>
-              <div>No Coffee yet!</div>
+              <div style={{ fontSize: "10px" }}>No Pokemon yet!</div>
               <div style={{ fontSize: "8px", marginTop: "8px" }}>
-                Create a coffee to generate your first entry.
+                Log 5 brews of a coffee to generate your first Pokemon.
               </div>
             </div>
           </div>
@@ -682,7 +997,7 @@ const App: React.FC = () => {
                 }))
               }
             >
-              ← Back
+              Back
             </button>
 
             <div className="mb-sm">
@@ -763,77 +1078,22 @@ const App: React.FC = () => {
 
             <div className="pokemon-textbox mb-sm" style={{ fontSize: "10px" }}>
               <div>
+                <strong>Pokemon:</strong> {pokemon.pokemon_name}
+              </div>
+              <div>
+                <strong>Level:</strong> {pokemon.level}
+              </div>
+              <div>
                 <strong>Origin:</strong> {coffee.origin}
               </div>
               <div>
                 <strong>Roaster:</strong> {coffee.roaster}
               </div>
-              {coffee.variety && (
-                <div>
-                  <strong>Variety:</strong> {coffee.variety}
-                </div>
-              )}
               <div>
                 <strong>Roast:</strong> {coffee.roast_level}
               </div>
               <div>
                 <strong>Process:</strong> {coffee.processing_method}
-              </div>
-              {coffee.dripper && (
-                <div>
-                  <strong>Brewer:</strong> {coffee.dripper}
-                </div>
-              )}
-            </div>
-
-            <div className="pokemon-textbox mb-md" style={{ fontSize: "9px" }}>
-              <div style={{ fontWeight: "bold", marginBottom: "4px" }}>
-                TASTING NOTES:
-              </div>
-              {coffee.tasting_notes
-                .filter((n) => n)
-                .map((note, i) => (
-                  <div key={i}>▸ {note}</div>
-                ))}
-            </div>
-
-            <div className="pokemon-textbox" style={{ fontSize: "8px" }}>
-              <div
-                style={{
-                  fontWeight: "bold",
-                  marginBottom: "4px",
-                  textAlign: "center",
-                }}
-              >
-                FLAVOR PROFILE
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "4px",
-                }}
-              >
-                {Object.entries(coffee.tasting_traits).map(([key, value]) => (
-                  <div
-                    key={key}
-                    style={{
-                      marginBottom: "2px",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{ fontSize: "7px", textTransform: "capitalize" }}
-                    >
-                      {key.replace(/_/g, " ")}
-                    </div>
-                    <div style={{ fontSize: "8px", fontWeight: "bold" }}>
-                      {value}
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
 
@@ -843,7 +1103,7 @@ const App: React.FC = () => {
                 onClick={() => navigatePokedex("prev")}
                 disabled={!hasPrev}
               >
-                ← Prev
+                Prev
               </button>
               <button
                 className="pokemon-button"
@@ -851,14 +1111,14 @@ const App: React.FC = () => {
                   setState((prev) => ({ ...prev, pokedexPage: 2 }))
                 }
               >
-                Analysis →
+                Analysis
               </button>
               <button
                 className="pokemon-button"
                 onClick={() => navigatePokedex("next")}
                 disabled={!hasNext}
               >
-                Next →
+                Next
               </button>
             </div>
 
@@ -866,7 +1126,6 @@ const App: React.FC = () => {
               <button
                 className="pokemon-button mt-md"
                 onClick={() => {
-                  resetForm();
                   setState((prev) => ({
                     ...prev,
                     view: "home",
@@ -876,7 +1135,7 @@ const App: React.FC = () => {
                 }}
                 style={{ width: "100%", padding: "12px", fontSize: "11px" }}
               >
-                🏠 Return to Home
+                Return to Home
               </button>
             )}
           </div>
@@ -902,7 +1161,7 @@ const App: React.FC = () => {
               }))
             }
           >
-            ← Back
+            Back
           </button>
 
           <h2 className="pokemon-title" style={{ fontSize: "14px" }}>
@@ -951,7 +1210,7 @@ const App: React.FC = () => {
               {pokemon.trait_mapping.slice(0, 5).map((tm, i) => (
                 <div key={i} style={{ marginBottom: "4px" }}>
                   <div>
-                    ▸ {tm.trait} → {tm.pokemon_stat}
+                    - {tm.trait} → {tm.pokemon_stat}
                   </div>
                   <div
                     style={{ fontSize: "7px", marginLeft: "8px", opacity: 0.8 }}
@@ -969,20 +1228,20 @@ const App: React.FC = () => {
               onClick={() => navigatePokedex("prev")}
               disabled={!hasPrev}
             >
-              ← Prev
+              Prev
             </button>
             <button
               className="pokemon-button"
               onClick={() => setState((prev) => ({ ...prev, pokedexPage: 1 }))}
             >
-              ← Details
+              Details
             </button>
             <button
               className="pokemon-button"
               onClick={() => navigatePokedex("next")}
               disabled={!hasNext}
             >
-              Next →
+              Next
             </button>
           </div>
 
@@ -990,7 +1249,6 @@ const App: React.FC = () => {
             <button
               className="pokemon-button mt-md"
               onClick={() => {
-                resetForm();
                 setState((prev) => ({
                   ...prev,
                   view: "home",
@@ -1000,7 +1258,7 @@ const App: React.FC = () => {
               }}
               style={{ width: "100%", padding: "12px", fontSize: "11px" }}
             >
-              🏠 Return to Home
+              Return to Home
             </button>
           )}
         </div>
@@ -1008,41 +1266,71 @@ const App: React.FC = () => {
     );
   };
 
-  const renderBrewSuccess = () => (
+  const renderSettings = () => (
     <div className="pokemon-screen centered">
       <div
         className="pokemon-frame"
         style={{ maxWidth: "600px", margin: "0 auto" }}
       >
+        <button
+          className="pokemon-button mb-md"
+          onClick={() => setState((prev) => ({ ...prev, view: "home" }))}
+        >
+          Back
+        </button>
+
         <h2 className="pokemon-title" style={{ fontSize: "14px" }}>
-          BREW SAVED!
+          SETTINGS
         </h2>
 
-        <div
-          className="pokemon-textbox text-center"
-          style={{ fontSize: "12px", marginBottom: "24px" }}
-        >
-          <div style={{ fontSize: "24px", marginBottom: "12px" }}>✓</div>
-          <div>Your brew has been successfully logged!</div>
-          {state.currentCoffee && (
-            <div style={{ fontSize: "10px", marginTop: "12px" }}>
-              <strong>{state.currentCoffee.name}</strong>
-              <br />
-              {state.currentCoffee.origin}
-            </div>
-          )}
-        </div>
+        <div className="pokemon-textbox mb-md">
+          <div style={{ fontWeight: "bold", marginBottom: "8px" }}>
+            Color Theme
+          </div>
+          <div style={{ fontSize: "10px", marginBottom: "12px" }}>
+            Select your Game Boy Color theme:
+          </div>
 
-        <button
-          className="pokemon-button"
-          onClick={() => {
-            resetForm();
-            setState((prev) => ({ ...prev, view: "home" }));
-          }}
-          style={{ width: "100%", padding: "12px", fontSize: "12px" }}
-        >
-          Return to Home
-        </button>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <button
+              className="pokemon-button"
+              onClick={() =>
+                setState((prev) => ({ ...prev, colorTheme: "blue" }))
+              }
+              style={{
+                background: state.colorTheme === "blue" ? "#0066cc" : undefined,
+                color: state.colorTheme === "blue" ? "white" : undefined,
+              }}
+            >
+              Blue {state.colorTheme === "blue" ? "OK" : ""}
+            </button>
+            <button
+              className="pokemon-button"
+              onClick={() =>
+                setState((prev) => ({ ...prev, colorTheme: "red" }))
+              }
+              style={{
+                background: state.colorTheme === "red" ? "#cc0000" : undefined,
+                color: state.colorTheme === "red" ? "white" : undefined,
+              }}
+            >
+              Red {state.colorTheme === "red" ? "OK" : ""}
+            </button>
+            <button
+              className="pokemon-button"
+              onClick={() =>
+                setState((prev) => ({ ...prev, colorTheme: "yellow" }))
+              }
+              style={{
+                background:
+                  state.colorTheme === "yellow" ? "#ccaa00" : undefined,
+                color: state.colorTheme === "yellow" ? "white" : undefined,
+              }}
+            >
+              Yellow {state.colorTheme === "yellow" ? "OK" : ""}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1054,7 +1342,20 @@ const App: React.FC = () => {
           className="pokemon-frame"
           style={{ maxWidth: "600px", margin: "0 auto" }}
         >
-          <div className="pokemon-loading">Generating Pokemon</div>
+          <div className="pokemon-loading">Creating Coffee</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.loading && state.view === "brew-form") {
+    return (
+      <div className="pokemon-screen">
+        <div
+          className="pokemon-frame"
+          style={{ maxWidth: "600px", margin: "0 auto" }}
+        >
+          <div className="pokemon-loading">Saving Brew</div>
         </div>
       </div>
     );
@@ -1067,6 +1368,9 @@ const App: React.FC = () => {
         {state.view === "start" && renderStart()}
         {state.view === "home" && renderHome()}
         {state.view === "coffee-form" && renderCoffeeForm()}
+        {state.view === "coffee-list" && renderCoffeeList()}
+        {state.view === "coffee-detail" && renderCoffeeDetail()}
+        {state.view === "brew-form" && renderBrewForm()}
         {state.view === "pokedex" && renderPokedex()}
         {state.view === "settings" && renderSettings()}
         {state.view === "statistics" && (
@@ -1079,7 +1383,6 @@ const App: React.FC = () => {
             onBack={() => setState((prev) => ({ ...prev, view: "home" }))}
           />
         )}
-        {state.view === "brew-success" && renderBrewSuccess()}
       </div>
     </div>
   );

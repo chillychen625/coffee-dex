@@ -265,100 +265,8 @@ func (pm *PokemonMapper) initializeTypeRules() {
 	}
 }
 
-// CalculatePokemonTypes determines primary and secondary types for a coffee
-func (pm *PokemonMapper) CalculatePokemonTypes(coffee models.Coffee) (string, string, map[string]float64) {
-	scores := make(map[string]float64)
-
-	// Calculate score for each type
-	for typeName, rule := range pm.typeRules {
-		score := pm.calculateTypeScore(coffee, rule)
-		scores[typeName] = score
-	}
-
-	// Sort types by score
-	var typeScores []TypeScore
-	for typeName, score := range scores {
-		typeScores = append(typeScores, TypeScore{Type: typeName, Score: score})
-	}
-	sort.Slice(typeScores, func(i, j int) bool {
-		return typeScores[i].Score > typeScores[j].Score
-	})
-
-	// Get primary and secondary types
-	primaryType := "normal"
-	secondaryType := ""
-
-	if len(typeScores) > 0 && typeScores[0].Score >= pm.typeRules[typeScores[0].Type].MinimumThreshold {
-		primaryType = typeScores[0].Type
-	}
-
-	if len(typeScores) > 1 && typeScores[1].Score >= pm.typeRules[typeScores[1].Type].MinimumThreshold*0.8 {
-		secondaryType = typeScores[1].Type
-	}
-
-	return primaryType, secondaryType, scores
-}
-
-// calculateTypeScore calculates how well a coffee matches a type rule
-func (pm *PokemonMapper) calculateTypeScore(coffee models.Coffee, rule TypeMappingRule) float64 {
-	score := 0.0
-	maxPossibleScore := 0.0
-
-	// Calculate primary trait scores
-	for _, tw := range rule.PrimaryTraits {
-		traitValue := pm.getTraitValue(coffee.TastingTraits, tw.Trait)
-		maxPossibleScore += tw.Weight * 10.0
-
-		if traitValue >= tw.Min {
-			// Scale score based on how close to optimal range
-			normalizedValue := float64(traitValue)
-			if normalizedValue > float64(tw.Max) {
-				normalizedValue = float64(tw.Max)
-			}
-			contribution := (normalizedValue / 10.0) * tw.Weight * 10.0
-			score += contribution
-		}
-	}
-
-	// Calculate secondary trait scores
-	for _, tw := range rule.SecondaryTraits {
-		traitValue := pm.getTraitValue(coffee.TastingTraits, tw.Trait)
-		maxPossibleScore += tw.Weight * 10.0
-
-		if traitValue >= tw.Min {
-			normalizedValue := float64(traitValue)
-			if normalizedValue > float64(tw.Max) {
-				normalizedValue = float64(tw.Max)
-			}
-			contribution := (normalizedValue / 10.0) * tw.Weight * 10.0
-			score += contribution
-		}
-	}
-
-	// Keyword matching bonus
-	if len(rule.KeywordMatches) > 0 {
-		keywordScore := pm.calculateKeywordScore(coffee.TastingNotes, rule.KeywordMatches)
-		score += keywordScore * 20.0 // Keyword matches are valuable
-		maxPossibleScore += 20.0
-	}
-
-	// Processing method bonus
-	if bonus, ok := rule.ProcessingBonus[coffee.ProcessingMethod]; ok {
-		score *= bonus
-	}
-
-	// Roast level bonus
-	if bonus, ok := rule.RoastLevelBonus[coffee.RoastLevel]; ok {
-		score *= bonus
-	}
-
-	// Normalize score to 0-1 range
-	if maxPossibleScore > 0 {
-		return math.Min(score/maxPossibleScore, 1.0)
-	}
-
-	return 0.0
-}
+// Note: The old CalculatePokemonTypes method has been replaced by CalculatePokemonTypesFromTraits
+// which accepts separate parameters instead of a Coffee struct with embedded tasting fields.
 
 // getTraitValue extracts a trait value from TastingTraits
 func (pm *PokemonMapper) getTraitValue(traits models.TastingTraits, traitName string) int {
@@ -410,19 +318,24 @@ func (pm *PokemonMapper) calculateKeywordScore(tastingNotes [5]string, keywords 
 	return float64(matches) / 5.0 // Normalize to 0-1
 }
 
-// GetTypeDescription returns a description of why a type was chosen
-func (pm *PokemonMapper) GetTypeDescription(typeName string, coffee models.Coffee) string {
+// GetTypeDescription returns a description of why a type was chosen (deprecated - use GetTypeDescriptionFromTraits)
+func (pm *PokemonMapper) GetTypeDescription(typeName string, traits models.TastingTraits) string {
+	return pm.GetTypeDescriptionFromTraits(typeName, traits)
+}
+
+// GetTypeDescriptionFromTraits returns a description of why a type was chosen based on traits
+func (pm *PokemonMapper) GetTypeDescriptionFromTraits(typeName string, traits models.TastingTraits) string {
 	rule, ok := pm.typeRules[typeName]
 	if !ok {
 		return fmt.Sprintf("Unknown type: %s", typeName)
 	}
 
 	description := fmt.Sprintf("This coffee exhibits %s-type characteristics", typeName)
-	
+
 	// Add specific trait mentions
 	highTraits := []string{}
 	for _, tw := range rule.PrimaryTraits {
-		value := pm.getTraitValue(coffee.TastingTraits, tw.Trait)
+		value := pm.getTraitValue(traits, tw.Trait)
 		if value >= tw.Min {
 			highTraits = append(highTraits, tw.Trait)
 		}
@@ -433,4 +346,118 @@ func (pm *PokemonMapper) GetTypeDescription(typeName string, coffee models.Coffe
 	}
 
 	return description
+}
+
+// CalculatePokemonTypesFromTraits determines types using traits, processing, roast, and notes
+func (pm *PokemonMapper) CalculatePokemonTypesFromTraits(
+	traits models.TastingTraits,
+	processingMethod string,
+	roastLevel string,
+	combinedNotes []string,
+) (string, string, map[string]float64) {
+	scores := make(map[string]float64)
+
+	// Convert combined notes to fixed array for keyword matching
+	var notesArray [5]string
+	for i, note := range combinedNotes {
+		if i >= 5 {
+			break
+		}
+		notesArray[i] = note
+	}
+
+	// Calculate score for each type
+	for typeName, rule := range pm.typeRules {
+		score := pm.calculateTypeScoreFromTraits(traits, processingMethod, roastLevel, notesArray, rule)
+		scores[typeName] = score
+	}
+
+	// Sort types by score
+	var typeScores []TypeScore
+	for typeName, score := range scores {
+		typeScores = append(typeScores, TypeScore{Type: typeName, Score: score})
+	}
+	sort.Slice(typeScores, func(i, j int) bool {
+		return typeScores[i].Score > typeScores[j].Score
+	})
+
+	// Get primary and secondary types
+	primaryType := "normal"
+	secondaryType := ""
+
+	if len(typeScores) > 0 && typeScores[0].Score >= pm.typeRules[typeScores[0].Type].MinimumThreshold {
+		primaryType = typeScores[0].Type
+	}
+
+	if len(typeScores) > 1 && typeScores[1].Score >= pm.typeRules[typeScores[1].Type].MinimumThreshold*0.8 {
+		secondaryType = typeScores[1].Type
+	}
+
+	return primaryType, secondaryType, scores
+}
+
+// calculateTypeScoreFromTraits calculates how well traits match a type rule
+func (pm *PokemonMapper) calculateTypeScoreFromTraits(
+	traits models.TastingTraits,
+	processingMethod string,
+	roastLevel string,
+	tastingNotes [5]string,
+	rule TypeMappingRule,
+) float64 {
+	score := 0.0
+	maxPossibleScore := 0.0
+
+	// Calculate primary trait scores
+	for _, tw := range rule.PrimaryTraits {
+		traitValue := pm.getTraitValue(traits, tw.Trait)
+		maxPossibleScore += tw.Weight * 10.0
+
+		if traitValue >= tw.Min {
+			normalizedValue := float64(traitValue)
+			if normalizedValue > float64(tw.Max) {
+				normalizedValue = float64(tw.Max)
+			}
+			contribution := (normalizedValue / 10.0) * tw.Weight * 10.0
+			score += contribution
+		}
+	}
+
+	// Calculate secondary trait scores
+	for _, tw := range rule.SecondaryTraits {
+		traitValue := pm.getTraitValue(traits, tw.Trait)
+		maxPossibleScore += tw.Weight * 10.0
+
+		if traitValue >= tw.Min {
+			normalizedValue := float64(traitValue)
+			if normalizedValue > float64(tw.Max) {
+				normalizedValue = float64(tw.Max)
+			}
+			contribution := (normalizedValue / 10.0) * tw.Weight * 10.0
+			score += contribution
+		}
+	}
+
+	// Keyword matching bonus
+	if len(rule.KeywordMatches) > 0 {
+		keywordScore := pm.calculateKeywordScore(tastingNotes, rule.KeywordMatches)
+		score += keywordScore * 20.0
+		maxPossibleScore += 20.0
+	}
+
+	// Processing method bonus
+	if bonus, ok := rule.ProcessingBonus[processingMethod]; ok {
+		score *= bonus
+	}
+
+	// Roast level bonus
+	if bonus, ok := rule.RoastLevelBonus[roastLevel]; ok {
+		score *= bonus
+	}
+
+	// Normalize score to 0-1 range
+	if maxPossibleScore > 0 {
+		return math.Min(score/maxPossibleScore, 1.0)
+	}
+
+	return 0.0
 }

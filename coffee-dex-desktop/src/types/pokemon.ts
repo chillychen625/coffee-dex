@@ -34,25 +34,40 @@ export interface TraitMapping {
   reasoning: string;
 }
 
+// RoastLevel type
+export type RoastLevel =
+  | "light"
+  | "medium"
+  | "dark"
+  | "light medium"
+  | "medium dark"
+  | "unclear";
+
+// ProcessingMethod type
+export type ProcessingMethod =
+  | "washed"
+  | "natural"
+  | "honey"
+  | "coferment"
+  | "experimental";
+
+// Coffee - bean info only
 export interface Coffee {
   id: string;
   name: string;
   origin: string;
   roaster: string;
   variety: string;
-  roast_level:
-    | "light"
-    | "medium"
-    | "dark"
-    | "light medium"
-    | "medium dark"
-    | "unclear";
-  processing_method:
-    | "washed"
-    | "natural"
-    | "honey"
-    | "coferment"
-    | "experimental";
+  roast_level: RoastLevel;
+  processing_method: ProcessingMethod;
+  created_at: string;
+  updated_at: string;
+}
+
+// Brew - per-tasting evaluation data
+export interface Brew {
+  id: string;
+  coffee_id: string;
   tasting_notes: [string, string, string, string, string]; // Fixed array of 5 strings
   tasting_traits: TastingTraits;
   rating: number; // 0-10
@@ -60,7 +75,22 @@ export interface Coffee {
   dripper: string;
   end_time: DrawDownTime;
   created_at: string;
-  updated_at: string;
+}
+
+// Coffee with brew stats for list view
+export interface CoffeeWithBrewStats extends Coffee {
+  brew_count: number;
+  average_rating: number;
+  can_generate_pokemon: boolean;
+  has_pokemon: boolean;
+}
+
+// Brew progress for Pokemon generation
+export interface BrewProgress {
+  count: number;
+  required: number;
+  can_generate_pokemon: boolean;
+  has_pokemon: boolean;
 }
 
 export interface DrawDownTime {

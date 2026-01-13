@@ -1,4 +1,4 @@
-import { Coffee, CoffeePokemon, Pokemon } from "../types/pokemon";
+import { Coffee, CoffeePokemon, Pokemon, Brew, BrewProgress } from "../types/pokemon";
 
 const API_BASE_URL = "http://localhost:8080";
 
@@ -48,21 +48,6 @@ export class CoffeeDexAPI {
     return response.json();
   }
 
-  async createBrewEntry(coffee: Partial<Coffee>): Promise<Coffee> {
-    // Same as createCoffee but used for subsequent brews
-    const response = await fetch(`${this.baseUrl}/coffees`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(coffee),
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to create brew entry: ${response.statusText}`);
-    }
-    return response.json();
-  }
-
   async updateCoffee(id: string, coffee: Partial<Coffee>): Promise<Coffee> {
     const response = await fetch(`${this.baseUrl}/coffees/${id}`, {
       method: "PUT",
@@ -84,6 +69,70 @@ export class CoffeeDexAPI {
     if (!response.ok) {
       throw new Error(`Failed to delete coffee: ${response.statusText}`);
     }
+  }
+
+  // Brew endpoints
+  async getBrews(): Promise<Brew[]> {
+    const response = await fetch(`${this.baseUrl}/brews`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch brews: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getRecentBrews(): Promise<Brew[]> {
+    const response = await fetch(`${this.baseUrl}/brews/recent`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch recent brews: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getBrew(id: string): Promise<Brew> {
+    const response = await fetch(`${this.baseUrl}/brews/${id}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch brew: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async createBrew(brew: Partial<Brew>): Promise<Brew> {
+    const response = await fetch(`${this.baseUrl}/brews`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(brew),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to create brew: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async deleteBrew(id: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/brews/${id}`, {
+      method: "DELETE",
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to delete brew: ${response.statusText}`);
+    }
+  }
+
+  async getBrewsForCoffee(coffeeId: string): Promise<Brew[]> {
+    const response = await fetch(`${this.baseUrl}/coffees/${coffeeId}/brews`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch brews for coffee: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getBrewProgress(coffeeId: string): Promise<BrewProgress> {
+    const response = await fetch(`${this.baseUrl}/coffees/${coffeeId}/brew-progress`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch brew progress: ${response.statusText}`);
+    }
+    return response.json();
   }
 
   // Pokemon endpoints

@@ -1,194 +1,121 @@
-# CoffeeDex 🗃️☕
+# CoffeeDex
 
-A Pokemon-themed coffee logging system that automatically maps coffee tasting notes to Pokemon based on flavor profiles, origins, and processing methods.
+A coffee tasting journal that transforms your brew experiences into Pokemon. Log your coffees, record multiple brews with tasting notes, and after 5 brews, generate a unique Pokemon based on your aggregated tasting data.
 
-![CoffeeDex](static/pokemon-sprites/025.png)
+## Overview
 
-## 🎯 Quick Start
+CoffeeDex separates coffee beans from individual brew sessions:
 
-```bash
-# Complete setup (database + data + dependencies)
-make full-setup
+- **Coffee**: Bean information (name, origin, roaster, variety, roast level, processing method)
+- **Brew**: Per-tasting evaluation (tasting notes, flavor traits, rating, dripper, brew time)
 
-# Start the backend server
-make start-server
+After logging 5 brews for a coffee, you can generate a Pokemon. The Pokemon type and selection is based on the averaged tasting traits and combined tasting notes from all your brews. Each coffee can only have one Pokemon - no regeneration.
 
-# Run the desktop app (in another terminal)
-make run-desktop
-```
+## Tech Stack
 
-## 📁 Project Structure
+- **Backend**: Go with MySQL storage
+- **Frontend**: Electron + React + TypeScript
+- **LLM Integration**: Ollama for Pokemon selection reasoning
 
-```
-coffee-dex/
-├── 📁 docs/                 # Documentation and guides
-│   ├── README.md           # Main documentation
-│   ├── IMPLEMENTATION_GUIDE.md
-│   ├── IMPLEMENTATION_STATUS.md
-│   ├── POKEMON_INTEGRATION_PLAN.md
-│   └── TESTING.md
-├── 📁 sql/                 # Database scripts and data
-│   ├── setup_pokemon_database.sql
-│   └── pokemon_gen1_data.sql
-├── 📁 scripts/             # Utility scripts
-│   └── download_pokemon_sprites.sh
-├── 📁 coffee-dex-desktop/  # Electron desktop app
-├── 📁 handlers/            # Go HTTP handlers
-├── 📁 models/              # Go data models
-├── 📁 service/             # Business logic services
-├── 📁 storage/             # Database storage layer
-├── 📁 static/              # Static assets
-│   └── pokemon-sprites/    # Pokemon images (151 Gen 1)
-├── 📄 Makefile             # Project management
-├── 📄 .gitignore           # Git ignore rules
-└── 📄 main.go              # Go application entry point
-```
-
-## 🚀 Features
-
-### Backend (Go + MySQL)
-
-- **Pokemon Database**: Complete Gen 1 Pokemon with stats and descriptions
-- **Intelligent Mapping**: Rule-based + LLM-powered coffee-to-Pokemon assignment
-- **RESTful API**: Complete endpoints for Pokemon generation and management
-- **MySQL Integration**: Persistent storage with proper relationships
-
-### Desktop App (Electron + TypeScript)
-
-- **Authentic Pokedex UI**: Nintendo DS-style interface
-- **Coffee Upload**: Tasting notes input with trait analysis
-- **Pokemon Display**: Visual Pokemon entries with sprite integration
-- **Real-time Mapping**: Instant coffee-to-Pokemon generation
-
-### Mapping Algorithm
-
-- **Coffee Type Analysis**: Water/Fire/Grass types for roast levels
-- **Flavor Profiles**: Sweet→Fairy, Bitter→Dark, Acidic→Poison, etc.
-- **Origin Mapping**: Geographic distribution matching
-- **Processing Methods**: Coffee techniques mapped to Pokemon traits
-- **Uniqueness**: Each Pokemon assigned to only one coffee
-
-## 🔧 Database Setup
-
-### Using Makefile (Recommended)
-
-```bash
-# Set up database schema
-make setup-db
-
-# Load Pokemon data
-make load-pokemon-data
-
-# Check database status
-make db-info
-```
-
-### Manual Setup
-
-```bash
-# Create database and tables
-mysql -u root < sql/setup_pokemon_database.sql
-
-# Load Pokemon data
-mysql -u root coffee_log < sql/pokemon_gen1_data.sql
-
-# Verify setup
-mysql -u root coffee_log -e "SELECT COUNT(*) FROM pokemons;"
-```
-
-## 🛠️ Development
+## Quick Start
 
 ### Prerequisites
 
-- Go 1.19+
-- Node.js 16+ (for desktop app)
+- Go 1.21+
+- Node.js 18+
 - MySQL 8.0+
-- Qwen3:4b LLM (optional, for enhanced mapping)
+- Ollama (optional, for LLM-powered Pokemon mapping)
 
-### Available Commands
-
-```bash
-make help           # Show all available commands
-make install-deps   # Install Go and Node.js dependencies
-make build-server   # Build Go server binary
-make build-desktop  # Build Electron app
-make test           # Run Go tests
-make clean          # Clean build artifacts
-make check-mysql    # Verify MySQL connection
-```
-
-### API Endpoints
-
-- `GET /api/pokemon` - List all Pokemon
-- `GET /api/pokemon/:id` - Get specific Pokemon
-- `POST /api/pokemon/generate` - Generate Pokemon from coffee
-- `POST /api/coffee` - Create coffee entry
-- `GET /api/coffee/:id/pokemon` - Get Pokemon for coffee
-
-## 🎮 Usage
-
-1. **Start Backend**: `make start-server` (runs on http://localhost:8080)
-2. **Launch Desktop App**: `make run-desktop`
-3. **Upload Coffee**: Enter tasting notes in the Pokedex interface
-4. **View Pokemon**: Automatically generated Pokemon based on coffee traits
-5. **Browse Collection**: Navigate through your coffee-Pokemon mappings
-
-## 📊 Pokemon Data
-
-- **151 Gen 1 Pokemon** with authentic stats and descriptions
-- **Sprite Integration**: All Pokemon have proper sprite files
-- **Type Mapping**: Coffee characteristics mapped to Pokemon types
-- **Unique Assignments**: Each Pokemon can only be assigned to one coffee
-
-## 🤖 LLM Integration
-
-The system supports Qwen3:4b for enhanced Pokemon mapping:
+### Database Setup
 
 ```bash
-# Set LLM API key (optional)
-export QWEN_API_KEY="your-api-key"
-
-# Enable LLM mapping in configuration
+mysql -u root -p < sql/schema.sql
 ```
 
-## 📚 Documentation
+### Start the Backend
 
-- **[Implementation Guide](docs/IMPLEMENTATION_GUIDE.md)** - Detailed setup and architecture
-- **[Implementation Status](docs/IMPLEMENTATION_STATUS.md)** - Current progress and remaining tasks
-- **[Pokemon Integration Plan](docs/POKEMON_INTEGRATION_PLAN.md)** - Mapping algorithm details
-- **[Testing Guide](docs/TESTING.md)** - Testing procedures and examples
+```bash
+go run main.go -storage=mysql -mysql-host=localhost:3306 -mysql-user=root -mysql-password=yourpassword -mysql-db=coffee_log
+```
 
-## 🎯 Current Status
+Backend flags:
+- `-storage`: `memory` or `mysql` (default: memory)
+- `-mysql-host`: MySQL host and port (default: localhost:3306)
+- `-mysql-user`: MySQL username (default: root)
+- `-mysql-password`: MySQL password
+- `-mysql-db`: Database name (default: coffee_log)
+- `-ollama-url`: Ollama URL (default: http://localhost:11434)
+- `-ollama-model`: Ollama model (default: qwen3:4b)
+- `-enable-llm`: Enable LLM mapping (default: true)
 
-- ✅ **Backend**: 100% Complete
-- ✅ **Database**: 100% Complete (151 Pokemon loaded)
-- ✅ **Assets**: 100% Complete (sprites downloaded)
-- 🔄 **Desktop App**: 80% Complete (UI ready, needs compilation fixes)
-- 📋 **Documentation**: 100% Complete
+### Start the Frontend
 
-See [Implementation Status](docs/IMPLEMENTATION_STATUS.md) for detailed progress.
+```bash
+cd coffee-dex-desktop
+npm install
+npm start
+```
 
-## 🤝 Contributing
+The Electron app will automatically spawn the Go backend when launched.
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+## Project Structure
 
-## 📄 License
+```
+coffee-dex/
+├── main.go                 # Application entry point and routing
+├── models/                 # Data models
+│   ├── coffee.go          # Coffee bean model
+│   ├── brew.go            # Brew session model
+│   └── pokemon.go         # Pokemon and mapping models
+├── storage/               # Data persistence
+│   ├── interface.go       # Storage interfaces
+│   ├── mysql.go           # MySQL coffee storage
+│   ├── mysql_brew.go      # MySQL brew storage
+│   ├── mysql_pokemon.go   # MySQL Pokemon storage
+│   └── mysql_brewer.go    # MySQL brewer storage
+├── service/               # Business logic
+│   ├── coffee.go          # Coffee CRUD operations
+│   ├── brew.go            # Brew management and aggregation
+│   ├── pokemon.go         # Pokemon generation and mapping
+│   ├── llm.go             # LLM integration for Pokemon selection
+│   ├── pokemon_mapper.go  # Type calculation from traits
+│   └── statistics.go      # Analytics and statistics
+├── handlers/              # HTTP handlers
+│   ├── coffee.go          # Coffee endpoints
+│   ├── brew.go            # Brew endpoints
+│   ├── pokemon.go         # Pokemon endpoints
+│   ├── brewer.go          # Brewer management endpoints
+│   └── statistics.go      # Statistics endpoints
+├── sql/                   # Database schemas
+│   └── schema.sql         # MySQL table definitions
+├── static/                # Static assets
+│   └── pokemon-sprites/   # Pokemon sprite images
+├── coffee-dex-desktop/    # Electron frontend
+│   ├── src/
+│   │   ├── main/          # Electron main process
+│   │   ├── renderer/      # React components
+│   │   ├── services/      # API client
+│   │   ├── types/         # TypeScript definitions
+│   │   └── styles/        # CSS styles
+│   └── package.json
+└── docs/                  # Documentation
+```
 
-MIT License - see LICENSE file for details.
+## User Flow
 
-## 🔮 Future Enhancements
+1. **Add a Coffee**: Enter bean information (name, origin, roaster, variety, roast level, processing method)
+2. **Log Brews**: For each brew session, record tasting notes, flavor traits (0-10 scales), rating, dripper, and brew time
+3. **Track Progress**: View brew count progress (X/5) on the coffee detail page
+4. **Generate Pokemon**: After 5+ brews, click "Generate Pokemon" to create a unique Pokemon based on aggregated brew data
+5. **View Pokedex**: Browse your Pokemon collection with coffee details and LLM analysis
 
-- Gen 2-9 Pokemon expansion
-- Advanced LLM models integration
-- Web interface option
-- Cloud synchronization
-- Social features (share Pokemon mappings)
-- Mobile app support
+## Documentation
 
----
+- [Architecture](docs/ARCHITECTURE.md) - System design and data flow
+- [API Reference](docs/API.md) - REST endpoint documentation
+- [Development](docs/DEVELOPMENT.md) - Setup and development workflow
+- [Pokemon Mapping](docs/POKEMON_MAPPING.md) - How coffee traits map to Pokemon types
 
-**Coffee + Pokemon = CoffeeDex** ☕🎮
+## License
+
+MIT

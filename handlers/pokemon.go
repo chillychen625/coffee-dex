@@ -27,16 +27,8 @@ func (h *PokemonHandler) GeneratePokemon(w http.ResponseWriter, r *http.Request)
 	coffeeID := r.PathValue("coffee_id")
 	log.Printf("GeneratePokemon called for coffee ID: %s", coffeeID)
 	
-	// Get coffee from service
-	coffee, err := h.coffeeService.GetCoffee(coffeeID)
-	if err != nil {
-		log.Printf("Error getting coffee: %v", err)
-		respondError(w, http.StatusNotFound, "Coffee not found")
-		return
-	}
-	
-	// Generate Pokemon mapping
-	mapping, err := h.pokemonService.MapCoffeeToPokemon(coffee)
+	// Generate Pokemon mapping (the service checks if coffee exists and has enough brews)
+	mapping, err := h.pokemonService.MapCoffeeToPokemon(coffeeID)
 	if err != nil {
 		log.Printf("Error mapping coffee to Pokemon: %v", err)
 		respondError(w, http.StatusInternalServerError, err.Error())

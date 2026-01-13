@@ -30,84 +30,8 @@ func NewLLMService(baseURL string, model string) *LLMService {
 	}
 }
 
-// MapCoffeeToPokemon maps coffee to Pokemon using LLM
-func (s *LLMService) MapCoffeeToPokemon(coffee models.Coffee, candidates []models.Pokemon) (*models.LLMMappingResponse, error) {
-	prompt := s.buildPrompt(coffee, candidates)
-	
-	payload := map[string]interface{}{
-		"model":  s.model,
-		"prompt": prompt,
-		"stream": false,
-		"format": "json",
-	}
-	
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-	
-	req, err := http.NewRequest("POST", s.baseURL+"/api/generate", bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	
-	req.Header.Set("Content-Type", "application/json")
-	
-	client := &http.Client{Timeout: s.timeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call LLM: %w", err)
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("LLM API returned status %d: %s", resp.StatusCode, string(body))
-	}
-	
-	var response struct {
-		Response string `json:"response"`
-	}
-	
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode LLM response: %w", err)
-	}
-	
-	// Parse the JSON response from LLM
-	return s.parseLLMResponse(response.Response)
-}
-
-// buildPrompt creates the prompt for LLM mapping
-func (s *LLMService) buildPrompt(coffee models.Coffee, candidates []models.Pokemon) string {
-	var candidateNames []string
-	for _, candidate := range candidates {
-		candidateNames = append(candidateNames, candidate.Name)
-	}
-	
-	traitDescription := s.formatTraits(coffee.TastingTraits)
-	
-	prompt := fmt.Sprintf(`You are a Pokemon expert specializing in coffee-Pokemon mappings. 
-Given a coffee's characteristics, select the best Gen 1 Pokemon match and write a Pokedex-style description.
-
-Coffee: %s from %s
-Tasting Notes: %s
-Dominant Traits: %s
-
-Available Pokemon: %s
-
-Respond with ONLY valid JSON:
-{
-  "selected_pokemon": "exact_pokemon_name",
-  "confidence": 0.95,
-  "description": "Pokedex-style description connecting coffee traits to Pokemon characteristics",
-  "trait_mapping": [
-    {"trait": "sweetness", "pokemon_stat": "HP", "reasoning": "sweet coffee provides sustained energy"},
-    {"trait": "bitterness", "pokemon_stat": "Attack", "reasoning": "bitterness represents bold, attacking flavors"}
-  ]
-}`, coffee.Name, coffee.Origin, strings.Join(coffee.TastingNotes[:], ", "), traitDescription, strings.Join(candidateNames, ", "))
-	
-	return prompt
-}
+// Note: The old MapCoffeeToPokemon method has been replaced by MapCoffeeToPokemonWithTraits
+// which accepts aggregated brew data instead of coffee with embedded tasting fields.
 
 // formatTraits formats coffee traits for LLM prompt
 func (s *LLMService) formatTraits(traits models.TastingTraits) string {
@@ -185,6 +109,94 @@ func (s *LLMService) fallbackParse(response string) *models.LLMMappingResponse {
 			{Trait: "general", PokemonStat: "HP", Reasoning: "Basic fallback mapping"},
 		},
 	}
+}
+
+// MapCoffeeToPokemonWithTraits maps coffee to Pokemon using aggregated traits and notes
+func (s *LLMService) MapCoffeeToPokemonWithTraits(
+	coffee models.Coffee,
+	traits models.TastingTraits,
+	combinedNotes []string,
+	candidates []models.Pokemon,
+) (*models.LLMMappingResponse, error) {
+	prompt := s.buildPromptWithTraits(coffee, traits, combinedNotes, candidates)
+
+	payload := map[string]interface{}{
+		"model":  s.model,
+		"prompt": prompt,
+		"stream": false,
+		"format": "json",
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", s.baseURL+"/api/generate", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: s.timeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call LLM: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("LLM API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var response struct {
+		Response string `json:"response"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return nil, fmt.Errorf("failed to decode LLM response: %w", err)
+	}
+
+	return s.parseLLMResponse(response.Response)
+}
+
+// buildPromptWithTraits creates the prompt for LLM mapping with aggregated data
+func (s *LLMService) buildPromptWithTraits(
+	coffee models.Coffee,
+	traits models.TastingTraits,
+	combinedNotes []string,
+	candidates []models.Pokemon,
+) string {
+	var candidateNames []string
+	for _, candidate := range candidates {
+		candidateNames = append(candidateNames, candidate.Name)
+	}
+
+	traitDescription := s.formatTraits(traits)
+
+	prompt := fmt.Sprintf(`You are a Pokemon expert specializing in coffee-Pokemon mappings.
+Given a coffee's characteristics (aggregated from multiple brews), select the best Gen 1 Pokemon match and write a Pokedex-style description.
+
+Coffee: %s from %s
+Tasting Notes (from all brews): %s
+Dominant Traits (averaged): %s
+
+Available Pokemon: %s
+
+Respond with ONLY valid JSON:
+{
+  "selected_pokemon": "exact_pokemon_name",
+  "confidence": 0.95,
+  "description": "Pokedex-style description connecting coffee traits to Pokemon characteristics",
+  "trait_mapping": [
+    {"trait": "sweetness", "pokemon_stat": "HP", "reasoning": "sweet coffee provides sustained energy"},
+    {"trait": "bitterness", "pokemon_stat": "Attack", "reasoning": "bitterness represents bold, attacking flavors"}
+  ]
+}`, coffee.Name, coffee.Origin, strings.Join(combinedNotes, ", "), traitDescription, strings.Join(candidateNames, ", "))
+
+	return prompt
 }
 
 // TestConnection tests the connection to LLM service

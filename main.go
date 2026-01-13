@@ -75,19 +75,27 @@ func main() {
 
 	// Initialize services
 	coffeeService := service.NewCoffeeService(store)
-	
+
 	// Initialize statistics service
 	var statisticsService *service.StatisticsService
-	
+
+	// Initialize brew service
+	var brewService *service.BrewService
+	var brewStorage storage.BrewStorage
+
 	// Initialize brewer service
 	var brewerService *service.BrewerService
 	var brewerStorage storage.BrewerStorage
-	
+
 	// Initialize Pokemon service
 	var pokemonService *service.PokemonService
 	var llmService *service.LLMService
-	
+
 	if pokemonStorage != nil {
+		// Create brew storage and service (requires MySQL)
+		brewStorage = storage.NewMySQLBrewStorage(db)
+		brewService = service.NewBrewService(brewStorage, store)
+
 		if *enableLLM {
 			llmService = service.NewLLMService(*ollamaURL, *ollamaModel)
 			// Test LLM connection
@@ -99,15 +107,15 @@ func main() {
 			}
 		}
 		
-		pokemonService = service.NewPokemonService(pokemonStorage, coffeeService, llmService)
-		
+		pokemonService = service.NewPokemonService(pokemonStorage, coffeeService, brewService, llmService)
+
 		// Initialize Pokemon data
 		if err := pokemonService.InitializePokemonData(); err != nil {
 			log.Printf("Failed to initialize Pokemon data: %v", err)
 		}
-		
-		// Initialize statistics service (requires Pokemon storage)
-		statisticsService = service.NewStatisticsService(store, pokemonStorage)
+
+		// Initialize statistics service (requires Pokemon and Brew storage)
+		statisticsService = service.NewStatisticsService(store, brewStorage, pokemonStorage)
 		
 		// Initialize brewer service (requires MySQL storage)
 		log.Printf("INFO: Initializing brewer storage with MySQL connection")
@@ -120,21 +128,26 @@ func main() {
 	
 	// Initialize handlers
 	coffeeHandler := handlers.NewCoffeeHandler(coffeeService)
-	
+
 	var pokemonHandler *handlers.PokemonHandler
 	var statisticsHandler *handlers.StatisticsHandler
 	var brewerHandler *handlers.BrewerHandler
-	
+	var brewHandler *handlers.BrewHandler
+
 	if pokemonService != nil {
 		pokemonHandler = handlers.NewPokemonHandler(pokemonService, coffeeService)
 	}
-	
+
 	if statisticsService != nil {
 		statisticsHandler = handlers.NewStatisticsHandler(statisticsService)
 	}
-	
+
 	if brewerService != nil {
 		brewerHandler = handlers.NewBrewerHandler(brewerService)
+	}
+
+	if brewService != nil {
+		brewHandler = handlers.NewBrewHandler(brewService, pokemonService)
 	}
 	
 	mux := http.NewServeMux()
@@ -159,6 +172,80 @@ func main() {
 		}
 	})
 	
+	// Brew routes (if brew service is available)
+	if brewHandler != nil {
+		mux.HandleFunc("/brews/recent", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				brewHandler.GetRecentBrews(w, r)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		mux.HandleFunc("/brews/", func(w http.ResponseWriter, r *http.Request) {
+			// Extract brew_id from path: /brews/{id}
+			path := strings.TrimPrefix(r.URL.Path, "/brews/")
+			if path == "" {
+				http.NotFound(w, r)
+				return
+			}
+
+			brewID := path
+			r.SetPathValue("id", brewID)
+
+			switch r.Method {
+			case http.MethodGet:
+				brewHandler.GetBrew(w, r)
+			case http.MethodDelete:
+				brewHandler.DeleteBrew(w, r)
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		mux.HandleFunc("/brews", func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case http.MethodPost:
+				brewHandler.CreateBrew(w, r)
+			case http.MethodGet:
+				brewHandler.ListBrews(w, r)
+			default:
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// Coffee-specific brew routes
+		mux.HandleFunc("/coffees/", func(w http.ResponseWriter, r *http.Request) {
+			// Extract coffee_id from path: /coffees/{id}/...
+			path := strings.TrimPrefix(r.URL.Path, "/coffees/")
+			parts := strings.Split(path, "/")
+			if len(parts) < 2 {
+				http.NotFound(w, r)
+				return
+			}
+
+			coffeeID := parts[0]
+			r.SetPathValue("coffee_id", coffeeID)
+
+			switch parts[1] {
+			case "brews":
+				if r.Method == http.MethodGet {
+					brewHandler.GetBrewsForCoffee(w, r)
+				} else {
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
+			case "brew-progress":
+				if r.Method == http.MethodGet {
+					brewHandler.GetBrewProgress(w, r)
+				} else {
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
+			default:
+				http.NotFound(w, r)
+			}
+		})
+	}
+
 	// Pokemon routes (if Pokemon service is available)
 	if pokemonHandler != nil {
 		// Pokemon routes for a specific coffee

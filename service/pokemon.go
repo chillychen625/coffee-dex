@@ -13,50 +13,99 @@ import (
 
 // PokemonService handles business logic for Pokemon operations
 type PokemonService struct {
-	storage      storage.PokemonStorage
+	storage       storage.PokemonStorage
 	coffeeService *CoffeeService
-	llmService   *LLMService
-	mapper       *PokemonMapper
+	brewService   *BrewService
+	llmService    *LLMService
+	mapper        *PokemonMapper
 }
 
 // NewPokemonService creates a new Pokemon service
 func NewPokemonService(
 	pokemonStorage storage.PokemonStorage,
 	coffeeService *CoffeeService,
+	brewService *BrewService,
 	llmService *LLMService,
 ) *PokemonService {
 	return &PokemonService{
-		storage:      pokemonStorage,
+		storage:       pokemonStorage,
 		coffeeService: coffeeService,
-		llmService:   llmService,
-		mapper:       NewPokemonMapper(),
+		brewService:   brewService,
+		llmService:    llmService,
+		mapper:        NewPokemonMapper(),
 	}
 }
 
-// MapCoffeeToPokemon maps a coffee to a Pokemon using enhanced type system + LLM
-func (s *PokemonService) MapCoffeeToPokemon(coffee models.Coffee) (*models.CoffeePokemon, error) {
-	// 1. Use enhanced mapper to determine Pokemon types
-	primaryType, secondaryType, typeScores := s.mapper.CalculatePokemonTypes(coffee)
-	log.Printf("Coffee types: primary=%s, secondary=%s, scores=%v", primaryType, secondaryType, typeScores)
-	
-	// 2. Get candidate Pokemon based on types
+// MapCoffeeToPokemon maps a coffee to a Pokemon using aggregated brew data
+// Requires 5+ brews and no existing Pokemon mapping
+func (s *PokemonService) MapCoffeeToPokemon(coffeeID string) (*models.CoffeePokemon, error) {
+	// 1. Check if Pokemon already exists (no regeneration allowed)
+	existing, err := s.storage.GetCoffeePokemon(coffeeID)
+	if err == nil && existing != nil {
+		return nil, fmt.Errorf("Pokemon already generated for this coffee - regeneration not allowed")
+	}
+
+	// 2. Check brew count
+	canGenerate, err := s.brewService.CanGeneratePokemon(coffeeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check brew count: %w", err)
+	}
+	if !canGenerate {
+		count, _ := s.brewService.GetBrewCount(coffeeID)
+		return nil, fmt.Errorf("need %d more brews to generate Pokemon (current: %d, required: %d)",
+			models.RequiredBrewsForPokemon-count, count, models.RequiredBrewsForPokemon)
+	}
+
+	// 3. Get coffee info
+	coffee, err := s.coffeeService.GetCoffee(coffeeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get coffee: %w", err)
+	}
+
+	// 4. Get aggregated brew data
+	aggregated, err := s.brewService.GetAggregatedData(coffeeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get aggregated brew data: %w", err)
+	}
+
+	// 5. Use enhanced mapper to determine Pokemon types from aggregated traits
+	primaryType, secondaryType, typeScores := s.mapper.CalculatePokemonTypesFromTraits(
+		aggregated.AverageTraits,
+		coffee.ProcessingMethod,
+		coffee.RoastLevel,
+		aggregated.CombinedNotes,
+	)
+	log.Printf("Coffee types (from %d brews): primary=%s, secondary=%s, scores=%v",
+		aggregated.BrewCount, primaryType, secondaryType, typeScores)
+
+	// 6. Get candidate Pokemon based on types
 	candidates := s.getTypedCandidates(primaryType, secondaryType)
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("no Pokemon candidates found for types %s/%s", primaryType, secondaryType)
 	}
 
-	// 3. Use LLM to pick the best Pokemon from candidates with type context
+	// 7. Use LLM to pick the best Pokemon from candidates with type context
 	var selectedPokemon *models.Pokemon
 	var confidence float64
 	var description string
 	var traitMapping []models.TraitMapping
 
 	if s.llmService != nil {
-		// Give LLM the type context to help it choose
-		llmResponse, err := s.llmService.MapCoffeeToPokemon(coffee, candidates)
+		// Create a synthetic coffee with aggregated data for LLM
+		syntheticCoffee := models.Coffee{
+			ID:               coffee.ID,
+			Name:             coffee.Name,
+			Origin:           coffee.Origin,
+			Roaster:          coffee.Roaster,
+			Variety:          coffee.Variety,
+			RoastLevel:       coffee.RoastLevel,
+			ProcessingMethod: coffee.ProcessingMethod,
+		}
+
+		llmResponse, err := s.llmService.MapCoffeeToPokemonWithTraits(syntheticCoffee, aggregated.AverageTraits, aggregated.CombinedNotes, candidates)
 		if err != nil {
 			log.Printf("LLM mapping failed, using best type match: %v", err)
-			selectedPokemon, confidence, description, traitMapping = s.getBestTypeMatch(coffee, candidates, primaryType, typeScores[primaryType])
+			selectedPokemon, confidence, description, traitMapping = s.getBestTypeMatch(aggregated.AverageTraits, candidates, primaryType, typeScores[primaryType])
 		} else {
 			// Find the Pokemon by name from LLM response
 			for _, candidate := range candidates {
@@ -67,7 +116,7 @@ func (s *PokemonService) MapCoffeeToPokemon(coffee models.Coffee) (*models.Coffe
 			}
 			if selectedPokemon == nil {
 				log.Printf("LLM selected unknown Pokemon: %s, using best type match", llmResponse.SelectedPokemon)
-				selectedPokemon, confidence, description, traitMapping = s.getBestTypeMatch(coffee, candidates, primaryType, typeScores[primaryType])
+				selectedPokemon, confidence, description, traitMapping = s.getBestTypeMatch(aggregated.AverageTraits, candidates, primaryType, typeScores[primaryType])
 			} else {
 				confidence = llmResponse.Confidence
 				description = llmResponse.Description
@@ -75,30 +124,33 @@ func (s *PokemonService) MapCoffeeToPokemon(coffee models.Coffee) (*models.Coffe
 			}
 		}
 	} else {
-		selectedPokemon, confidence, description, traitMapping = s.getBestTypeMatch(coffee, candidates, primaryType, typeScores[primaryType])
+		selectedPokemon, confidence, description, traitMapping = s.getBestTypeMatch(aggregated.AverageTraits, candidates, primaryType, typeScores[primaryType])
 	}
 
-	// 4. Ensure uniqueness
+	// 8. Ensure uniqueness
 	finalPokemon, err := s.ensureUniquePokemon(coffee.ID, *selectedPokemon)
 	if err != nil {
 		return nil, fmt.Errorf("no unique Pokemon available: %w", err)
 	}
 
-	// 5. Create mapping with type info
-	typeDescription := s.mapper.GetTypeDescription(primaryType, coffee)
+	// 9. Create mapping with type info
+	typeDescription := s.mapper.GetTypeDescriptionFromTraits(primaryType, aggregated.AverageTraits)
 	if secondaryType != "" {
-		typeDescription += fmt.Sprintf(" and %s", s.mapper.GetTypeDescription(secondaryType, coffee))
+		typeDescription += fmt.Sprintf(" and %s", s.mapper.GetTypeDescriptionFromTraits(secondaryType, aggregated.AverageTraits))
 	}
-	
+
+	// Calculate level from average rating
+	level := s.calculateLevel(int(aggregated.AverageRating + 0.5)) // Round to nearest int
+
 	mapping := &models.CoffeePokemon{
 		ID:                uuid.New().String(),
 		CoffeeID:          coffee.ID,
 		PokemonID:         finalPokemon.ID,
 		PokemonName:       finalPokemon.Name,
 		Nickname:          "",
-		Level:             s.calculateLevel(coffee.Rating),
+		Level:             level,
 		MappingConfidence: confidence,
-		LLMDescription:    fmt.Sprintf("%s\n\nType Analysis: %s", description, typeDescription),
+		LLMDescription:    fmt.Sprintf("%s\n\nType Analysis (from %d brews): %s", description, aggregated.BrewCount, typeDescription),
 		TraitMapping:      traitMapping,
 		CreatedAt:         time.Now(),
 	}
@@ -112,7 +164,7 @@ func (s *PokemonService) MapCoffeeToPokemon(coffee models.Coffee) (*models.Coffe
 // getTypedCandidates gets Pokemon candidates based on calculated types
 func (s *PokemonService) getTypedCandidates(primaryType, secondaryType string) []models.Pokemon {
 	candidates := make([]models.Pokemon, 0)
-	
+
 	// Get Pokemon of primary type
 	primary, err := s.storage.GetPokemonByType(primaryType)
 	if err != nil {
@@ -120,7 +172,7 @@ func (s *PokemonService) getTypedCandidates(primaryType, secondaryType string) [
 	} else {
 		candidates = append(candidates, primary...)
 	}
-	
+
 	// Get Pokemon of secondary type if exists
 	if secondaryType != "" {
 		secondary, err := s.storage.GetPokemonByType(secondaryType)
@@ -130,7 +182,7 @@ func (s *PokemonService) getTypedCandidates(primaryType, secondaryType string) [
 			candidates = append(candidates, secondary...)
 		}
 	}
-	
+
 	// If no matches, get some normal types
 	if len(candidates) == 0 {
 		normal, err := s.storage.GetPokemonByType("Normal")
@@ -138,17 +190,17 @@ func (s *PokemonService) getTypedCandidates(primaryType, secondaryType string) [
 			candidates = append(candidates, normal...)
 		}
 	}
-	
+
 	// Limit to 10 candidates for LLM
 	if len(candidates) > 10 {
 		candidates = candidates[:10]
 	}
-	
+
 	return candidates
 }
 
 // getBestTypeMatch selects best Pokemon from candidates based on type score
-func (s *PokemonService) getBestTypeMatch(coffee models.Coffee, candidates []models.Pokemon, primaryType string, typeScore float64) (*models.Pokemon, float64, string, []models.TraitMapping) {
+func (s *PokemonService) getBestTypeMatch(traits models.TastingTraits, candidates []models.Pokemon, primaryType string, typeScore float64) (*models.Pokemon, float64, string, []models.TraitMapping) {
 	if len(candidates) == 0 {
 		// Fallback to a basic Pokemon
 		return &models.Pokemon{
@@ -158,23 +210,23 @@ func (s *PokemonService) getBestTypeMatch(coffee models.Coffee, candidates []mod
 			Description: "A basic Pokemon for coffee mapping",
 		}, 0.5, "Fallback mapping - no candidates available", []models.TraitMapping{}
 	}
-	
+
 	// Select first candidate from type matches
 	selected := candidates[0]
 	confidence := typeScore * 0.9 // Type score as base confidence
 	description := fmt.Sprintf("Type-based mapping: %s (%s-type) matches coffee's %s characteristics with %.0f%% confidence",
 		selected.Name, selected.Type, primaryType, confidence*100)
-	
+
 	// Build trait mapping based on dominant traits
-	traitMapping := s.buildTraitMapping(coffee.TastingTraits, selected)
-	
+	traitMapping := s.buildTraitMapping(traits, selected)
+
 	return &selected, confidence, description, traitMapping
 }
 
 // buildTraitMapping creates trait mappings based on coffee characteristics
 func (s *PokemonService) buildTraitMapping(traits models.TastingTraits, pokemon models.Pokemon) []models.TraitMapping {
 	mappings := []models.TraitMapping{}
-	
+
 	if traits.Sweetness >= 7 {
 		mappings = append(mappings, models.TraitMapping{
 			Trait:       "sweetness",
@@ -210,10 +262,9 @@ func (s *PokemonService) buildTraitMapping(traits models.TastingTraits, pokemon 
 			Reasoning:   "Complex aroma represents special characteristics",
 		})
 	}
-	
+
 	return mappings
 }
-
 
 // ensureUniquePokemon ensures each Pokemon is unique
 func (s *PokemonService) ensureUniquePokemon(coffeeID string, pokemon models.Pokemon) (*models.Pokemon, error) {
@@ -249,38 +300,24 @@ func (s *PokemonService) ensureUniquePokemon(coffeeID string, pokemon models.Pok
 // calculateLevel calculates Pokemon level based on coffee rating
 func (s *PokemonService) calculateLevel(rating int) int {
 	// Level 1-50 based on rating 0-10
+	if rating < 0 {
+		rating = 0
+	}
+	if rating > 10 {
+		rating = 10
+	}
 	return rating * 5
-}
-
-// calculateTraitVariance calculates variance in coffee traits
-func (s *PokemonService) calculateTraitVariance(traits models.TastingTraits) int {
-	traitValues := []int{
-		traits.BerryIntensity, traits.StonefruitIntensity, traits.RoastIntensity,
-		traits.CitrusFruitsIntensity, traits.Bitterness, traits.Florality,
-		traits.Spice, traits.Sweetness, traits.AromaticIntensity,
-		traits.Savory, traits.Body, traits.Cleanliness,
-	}
-
-	// Calculate mean
-	sum := 0
-	for _, val := range traitValues {
-		sum += val
-	}
-	mean := sum / len(traitValues)
-
-	// Calculate variance
-	variance := 0
-	for _, val := range traitValues {
-		diff := val - mean
-		variance += diff * diff
-	}
-
-	return variance / len(traitValues)
 }
 
 // GetCoffeePokemon gets Pokemon mapping for a specific coffee
 func (s *PokemonService) GetCoffeePokemon(coffeeID string) (*models.CoffeePokemon, error) {
 	return s.storage.GetCoffeePokemon(coffeeID)
+}
+
+// HasPokemon checks if a coffee has a Pokemon mapping
+func (s *PokemonService) HasPokemon(coffeeID string) bool {
+	mapping, err := s.storage.GetCoffeePokemon(coffeeID)
+	return err == nil && mapping != nil
 }
 
 // GetAllCoffeePokemon gets all coffee-Pokemon mappings
@@ -304,7 +341,7 @@ func (s *PokemonService) InitializePokemonData() error {
 
 	// Pokemon data should be loaded via sql/pokemon_gen1_data.sql
 	log.Println("Warning: No Pokemon data found. Please run sql/pokemon_gen1_data.sql to initialize the database")
-	
+
 	return nil
 }
 

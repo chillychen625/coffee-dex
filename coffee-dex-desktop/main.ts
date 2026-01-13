@@ -1,7 +1,60 @@
 import { app, BrowserWindow, Menu, ipcMain } from "electron";
 import * as path from "path";
+import { spawn, ChildProcess } from "child_process";
+import * as fs from "fs";
 
 let mainWindow: BrowserWindow | null = null;
+let backendProcess: ChildProcess | null = null;
+
+function startBackend(): void {
+  const goProjectDir = path.join(__dirname, "..");
+
+  // Check for pre-built binary first (for production), then fall back to go run
+  const binaryPath = path.join(goProjectDir, "bin", "coffee-dex");
+  const useBinary = fs.existsSync(binaryPath);
+
+  console.log(`[Backend] Starting Go backend from: ${goProjectDir}`);
+
+  if (useBinary) {
+    console.log(`[Backend] Using pre-built binary: ${binaryPath}`);
+    backendProcess = spawn(binaryPath, ["-storage=mysql"], {
+      cwd: goProjectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } else {
+    console.log(`[Backend] Using 'go run main.go'`);
+    backendProcess = spawn("go", ["run", "main.go", "-storage=mysql"], {
+      cwd: goProjectDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+  }
+
+  backendProcess.stdout?.on("data", (data: Buffer) => {
+    console.log(`[Backend] ${data.toString().trim()}`);
+  });
+
+  backendProcess.stderr?.on("data", (data: Buffer) => {
+    console.error(`[Backend Error] ${data.toString().trim()}`);
+  });
+
+  backendProcess.on("error", (err: Error) => {
+    console.error(`[Backend] Failed to start: ${err.message}`);
+  });
+
+  backendProcess.on("exit", (code: number | null, signal: string | null) => {
+    console.log(`[Backend] Process exited with code ${code}, signal ${signal}`);
+    backendProcess = null;
+  });
+}
+
+function stopBackend(): void {
+  if (backendProcess) {
+    console.log("[Backend] Stopping backend process...");
+    backendProcess.kill("SIGTERM");
+    backendProcess = null;
+  }
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -99,12 +152,23 @@ function createMenu(): void {
   Menu.setApplicationMenu(menu);
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  startBackend();
+  createWindow();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  stopBackend();
+});
+
+app.on("will-quit", () => {
+  stopBackend();
 });
 
 app.on("activate", () => {

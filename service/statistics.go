@@ -11,6 +11,7 @@ import (
 // StatisticsService handles analytics and statistics calculations
 type StatisticsService struct {
 	coffeeStorage  storage.CoffeeStorage
+	brewStorage    storage.BrewStorage
 	pokemonStorage storage.PokemonStorage
 	mapper         *PokemonMapper
 }
@@ -18,10 +19,12 @@ type StatisticsService struct {
 // NewStatisticsService creates a new statistics service
 func NewStatisticsService(
 	coffeeStorage storage.CoffeeStorage,
+	brewStorage storage.BrewStorage,
 	pokemonStorage storage.PokemonStorage,
 ) *StatisticsService {
 	return &StatisticsService{
 		coffeeStorage:  coffeeStorage,
+		brewStorage:    brewStorage,
 		pokemonStorage: pokemonStorage,
 		mapper:         NewPokemonMapper(),
 	}
@@ -119,98 +122,158 @@ type Range struct {
 
 // CalculateStatistics computes all statistics from the database
 func (s *StatisticsService) CalculateStatistics() (*Statistics, error) {
-	// Get all coffees and pokemon mappings
+	// Get all coffees, brews, and pokemon mappings
 	coffees, err := s.coffeeStorage.GetAll()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get coffees: %w", err)
 	}
-	
+
+	brews, err := s.brewStorage.GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get brews: %w", err)
+	}
+
 	pokemonMappings, err := s.pokemonStorage.GetAllCoffeePokemon()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pokemon mappings: %w", err)
 	}
-	
-	stats := &Statistics{
-		TotalCoffees:      len(coffees),
-		TotalPokemon:      len(pokemonMappings),
-		CompletionPercent: float64(len(pokemonMappings)) / 151.0 * 100.0,
-		TypeDistribution:  make(map[string]int),
-		OriginDistribution: make(map[string]int),
-		ProcessingStats:   make(map[string]ProcessingStat),
-		RoastDistribution: make(map[string]int),
-		BrewerStats:       make(map[string]BrewerStat),
+
+	// Build coffee lookup map
+	coffeeMap := make(map[string]models.Coffee)
+	for _, coffee := range coffees {
+		coffeeMap[coffee.ID] = coffee
 	}
-	
-	// Calculate statistics
-	s.calculateRatingStats(coffees, pokemonMappings, stats)
-	s.calculateTypeDistribution(coffees, stats)
-	s.calculateOriginStats(coffees, stats)
-	s.calculateProcessingStats(coffees, stats)
+
+	stats := &Statistics{
+		TotalCoffees:       len(coffees),
+		TotalPokemon:       len(pokemonMappings),
+		CompletionPercent:  float64(len(pokemonMappings)) / 151.0 * 100.0,
+		TypeDistribution:   make(map[string]int),
+		OriginDistribution: make(map[string]int),
+		ProcessingStats:    make(map[string]ProcessingStat),
+		RoastDistribution:  make(map[string]int),
+		BrewerStats:        make(map[string]BrewerStat),
+	}
+
+	// Calculate statistics using brews for tasting data
+	s.calculateRatingStats(brews, coffeeMap, pokemonMappings, stats)
+	s.calculateTypeDistribution(coffees, brews, stats)
+	s.calculateOriginStats(coffees, brews, stats)
+	s.calculateProcessingStats(coffees, brews, stats)
 	s.calculateRoastDistribution(coffees, stats)
-	s.calculateTraitAverages(coffees, stats)
-	s.calculateBrewerStats(coffees, stats)
+	s.calculateTraitAverages(brews, stats)
+	s.calculateBrewerStats(brews, stats)
 	s.calculateConfidenceMetrics(pokemonMappings, stats)
-	
+
 	return stats, nil
 }
 
-// calculateRatingStats calculates rating-based statistics
-func (s *StatisticsService) calculateRatingStats(coffees []models.Coffee, mappings []models.CoffeePokemon, stats *Statistics) {
-	if len(coffees) == 0 {
+// calculateRatingStats calculates rating-based statistics from brews
+func (s *StatisticsService) calculateRatingStats(brews []models.Brew, coffeeMap map[string]models.Coffee, mappings []models.CoffeePokemon, stats *Statistics) {
+	if len(brews) == 0 {
 		return
 	}
-	
+
+	// Calculate average ratings per coffee
+	coffeeRatings := make(map[string][]int)
+	for _, brew := range brews {
+		coffeeRatings[brew.CoffeeID] = append(coffeeRatings[brew.CoffeeID], brew.Rating)
+	}
+
+	// Calculate overall average and find highest/lowest rated coffees
 	totalRating := 0
-	var highest, lowest *models.Coffee
-	
-	for i := range coffees {
-		coffee := &coffees[i]
-		totalRating += coffee.Rating
-		
-		if highest == nil || coffee.Rating > highest.Rating {
-			highest = coffee
+	ratingCount := 0
+	var highestCoffeeID, lowestCoffeeID string
+	highestAvg := 0.0
+	lowestAvg := 11.0
+
+	for coffeeID, ratings := range coffeeRatings {
+		sum := 0
+		for _, r := range ratings {
+			sum += r
+			totalRating += r
+			ratingCount++
 		}
-		if lowest == nil || coffee.Rating < lowest.Rating {
-			lowest = coffee
+		avg := float64(sum) / float64(len(ratings))
+
+		if avg > highestAvg {
+			highestAvg = avg
+			highestCoffeeID = coffeeID
 		}
-	}
-	
-	stats.AverageRating = float64(totalRating) / float64(len(coffees))
-	
-	if highest != nil {
-		pokemonName := s.getPokemonNameForCoffee(highest.ID, mappings)
-		stats.HighestRated = &CoffeeRatingSummary{
-			ID:          highest.ID,
-			Name:        highest.Name,
-			Origin:      highest.Origin,
-			Rating:      highest.Rating,
-			PokemonName: pokemonName,
+		if avg < lowestAvg {
+			lowestAvg = avg
+			lowestCoffeeID = coffeeID
 		}
 	}
-	
-	if lowest != nil {
-		pokemonName := s.getPokemonNameForCoffee(lowest.ID, mappings)
-		stats.LowestRated = &CoffeeRatingSummary{
-			ID:          lowest.ID,
-			Name:        lowest.Name,
-			Origin:      lowest.Origin,
-			Rating:      lowest.Rating,
-			PokemonName: pokemonName,
+
+	if ratingCount > 0 {
+		stats.AverageRating = float64(totalRating) / float64(ratingCount)
+	}
+
+	if highestCoffeeID != "" {
+		if coffee, ok := coffeeMap[highestCoffeeID]; ok {
+			pokemonName := s.getPokemonNameForCoffee(highestCoffeeID, mappings)
+			stats.HighestRated = &CoffeeRatingSummary{
+				ID:          coffee.ID,
+				Name:        coffee.Name,
+				Origin:      coffee.Origin,
+				Rating:      int(highestAvg + 0.5), // Round to nearest int
+				PokemonName: pokemonName,
+			}
+		}
+	}
+
+	if lowestCoffeeID != "" {
+		if coffee, ok := coffeeMap[lowestCoffeeID]; ok {
+			pokemonName := s.getPokemonNameForCoffee(lowestCoffeeID, mappings)
+			stats.LowestRated = &CoffeeRatingSummary{
+				ID:          coffee.ID,
+				Name:        coffee.Name,
+				Origin:      coffee.Origin,
+				Rating:      int(lowestAvg + 0.5), // Round to nearest int
+				PokemonName: pokemonName,
+			}
 		}
 	}
 }
 
-// calculateTypeDistribution calculates Pokemon type distribution
-func (s *StatisticsService) calculateTypeDistribution(coffees []models.Coffee, stats *Statistics) {
+// calculateTypeDistribution calculates Pokemon type distribution using aggregated brew traits
+func (s *StatisticsService) calculateTypeDistribution(coffees []models.Coffee, brews []models.Brew, stats *Statistics) {
+	// Group brews by coffee
+	coffeeBrews := make(map[string][]models.Brew)
+	for _, brew := range brews {
+		coffeeBrews[brew.CoffeeID] = append(coffeeBrews[brew.CoffeeID], brew)
+	}
+
+	// Build coffee map
+	coffeeMap := make(map[string]models.Coffee)
 	for _, coffee := range coffees {
-		primaryType, secondaryType, _ := s.mapper.CalculatePokemonTypes(coffee)
-		
+		coffeeMap[coffee.ID] = coffee
+	}
+
+	// Calculate type distribution using aggregated traits per coffee
+	for coffeeID, brewList := range coffeeBrews {
+		coffee, ok := coffeeMap[coffeeID]
+		if !ok {
+			continue
+		}
+
+		avgTraits := models.AverageTraits(brewList)
+		combinedNotes := models.CombineNotes(brewList)
+
+		primaryType, secondaryType, _ := s.mapper.CalculatePokemonTypesFromTraits(
+			avgTraits,
+			coffee.ProcessingMethod,
+			coffee.RoastLevel,
+			combinedNotes,
+		)
+
 		stats.TypeDistribution[primaryType]++
 		if secondaryType != "" {
 			stats.TypeDistribution[secondaryType]++
 		}
 	}
-	
+
 	// Find most common type
 	maxCount := 0
 	for typeName, count := range stats.TypeDistribution {
@@ -221,52 +284,71 @@ func (s *StatisticsService) calculateTypeDistribution(coffees []models.Coffee, s
 	}
 }
 
-// calculateOriginStats calculates origin-based statistics
-func (s *StatisticsService) calculateOriginStats(coffees []models.Coffee, stats *Statistics) {
+// calculateOriginStats calculates origin-based statistics using brew ratings
+func (s *StatisticsService) calculateOriginStats(coffees []models.Coffee, brews []models.Brew, stats *Statistics) {
+	// Build coffee map
+	coffeeMap := make(map[string]models.Coffee)
+	for _, coffee := range coffees {
+		coffeeMap[coffee.ID] = coffee
+	}
+
+	// Calculate origin distribution and collect ratings from brews
 	originRatings := make(map[string][]int)
-	
+	originCounts := make(map[string]int)
+
+	// First pass: count coffees per origin
 	for _, coffee := range coffees {
 		if coffee.Origin == "" {
 			continue
 		}
+		originCounts[coffee.Origin]++
 		stats.OriginDistribution[coffee.Origin]++
-		originRatings[coffee.Origin] = append(originRatings[coffee.Origin], coffee.Rating)
 	}
-	
+
+	// Second pass: collect ratings from brews
+	for _, brew := range brews {
+		if coffee, ok := coffeeMap[brew.CoffeeID]; ok && coffee.Origin != "" {
+			originRatings[coffee.Origin] = append(originRatings[coffee.Origin], brew.Rating)
+		}
+	}
+
 	// Calculate top origins with average ratings
 	type originData struct {
-		origin string
-		count  int
+		origin    string
+		count     int
 		avgRating float64
 	}
-	
+
 	var origins []originData
 	for origin, count := range stats.OriginDistribution {
 		ratings := originRatings[origin]
-		sum := 0
-		for _, r := range ratings {
-			sum += r
+		avg := 0.0
+		if len(ratings) > 0 {
+			sum := 0
+			for _, r := range ratings {
+				sum += r
+			}
+			avg = float64(sum) / float64(len(ratings))
 		}
-		avg := float64(sum) / float64(len(ratings))
-		
+
 		origins = append(origins, originData{
 			origin:    origin,
 			count:     count,
 			avgRating: avg,
 		})
 	}
-	
+
 	// Sort by count (descending)
 	sort.Slice(origins, func(i, j int) bool {
 		return origins[i].count > origins[j].count
 	})
-	
+
 	// Take top 5
 	limit := 5
 	if len(origins) < limit {
 		limit = len(origins)
 	}
-	
+
 	stats.TopOrigins = make([]OriginStat, limit)
 	for i := 0; i < limit; i++ {
 		stats.TopOrigins[i] = OriginStat{
@@ -277,48 +359,81 @@ func (s *StatisticsService) calculateOriginStats(coffees []models.Coffee, stats 
 	}
 }
 
-// calculateProcessingStats calculates processing method statistics
-func (s *StatisticsService) calculateProcessingStats(coffees []models.Coffee, stats *Statistics) {
+// calculateProcessingStats calculates processing method statistics using brews
+func (s *StatisticsService) calculateProcessingStats(coffees []models.Coffee, brews []models.Brew, stats *Statistics) {
+	// Build coffee map and group brews by coffee
+	coffeeMap := make(map[string]models.Coffee)
+	for _, coffee := range coffees {
+		coffeeMap[coffee.ID] = coffee
+	}
+
+	coffeeBrews := make(map[string][]models.Brew)
+	for _, brew := range brews {
+		coffeeBrews[brew.CoffeeID] = append(coffeeBrews[brew.CoffeeID], brew)
+	}
+
 	processingRatings := make(map[string][]int)
 	processingTypes := make(map[string]map[string]bool)
-	
+	processingCounts := make(map[string]int)
+
 	for _, coffee := range coffees {
 		if coffee.ProcessingMethod == "" {
 			continue
 		}
-		
-		processingRatings[coffee.ProcessingMethod] = append(
-			processingRatings[coffee.ProcessingMethod],
-			coffee.Rating,
-		)
-		
-		// Track common types for this processing method
-		primaryType, _, _ := s.mapper.CalculatePokemonTypes(coffee)
-		if processingTypes[coffee.ProcessingMethod] == nil {
-			processingTypes[coffee.ProcessingMethod] = make(map[string]bool)
+
+		processingCounts[coffee.ProcessingMethod]++
+
+		// Get ratings from brews for this coffee
+		if brewList, ok := coffeeBrews[coffee.ID]; ok {
+			for _, brew := range brewList {
+				processingRatings[coffee.ProcessingMethod] = append(
+					processingRatings[coffee.ProcessingMethod],
+					brew.Rating,
+				)
+			}
+
+			// Track common types using aggregated brew traits
+			avgTraits := models.AverageTraits(brewList)
+			combinedNotes := models.CombineNotes(brewList)
+
+			primaryType, _, _ := s.mapper.CalculatePokemonTypesFromTraits(
+				avgTraits,
+				coffee.ProcessingMethod,
+				coffee.RoastLevel,
+				combinedNotes,
+			)
+			if processingTypes[coffee.ProcessingMethod] == nil {
+				processingTypes[coffee.ProcessingMethod] = make(map[string]bool)
+			}
+			processingTypes[coffee.ProcessingMethod][primaryType] = true
 		}
-		processingTypes[coffee.ProcessingMethod][primaryType] = true
 	}
-	
-	for method, ratings := range processingRatings {
-		sum := 0
-		for _, r := range ratings {
-			sum += r
+
+	for method, count := range processingCounts {
+		ratings := processingRatings[method]
+		avg := 0.0
+		if len(ratings) > 0 {
+			sum := 0
+			for _, r := range ratings {
+				sum += r
+			}
+			avg = float64(sum) / float64(len(ratings))
 		}
-		avg := float64(sum) / float64(len(ratings))
-		
+
 		// Get common types (max 3)
 		var types []string
-		for t := range processingTypes[method] {
-			types = append(types, t)
+		if typeMap, ok := processingTypes[method]; ok {
+			for t := range typeMap {
+				types = append(types, t)
+			}
 		}
 		sort.Strings(types)
 		if len(types) > 3 {
 			types = types[:3]
 		}
-		
+
 		stats.ProcessingStats[method] = ProcessingStat{
-			Count:         len(ratings),
+			Count:         count,
 			AverageRating: math.Round(avg*10) / 10,
 			CommonTypes:   types,
 		}
@@ -334,12 +449,12 @@ func (s *StatisticsService) calculateRoastDistribution(coffees []models.Coffee, 
 	}
 }
 
-// calculateTraitAverages calculates average tasting traits across all coffees
-func (s *StatisticsService) calculateTraitAverages(coffees []models.Coffee, stats *Statistics) {
-	if len(coffees) == 0 {
+// calculateTraitAverages calculates average tasting traits across all brews
+func (s *StatisticsService) calculateTraitAverages(brews []models.Brew, stats *Statistics) {
+	if len(brews) == 0 {
 		return
 	}
-	
+
 	sums := models.TastingTraits{}
 	mins := models.TastingTraits{
 		BerryIntensity: 10, StonefruitIntensity: 10, RoastIntensity: 10,
@@ -348,10 +463,10 @@ func (s *StatisticsService) calculateTraitAverages(coffees []models.Coffee, stat
 		Savory: 10, Body: 10, Cleanliness: 10,
 	}
 	maxs := models.TastingTraits{}
-	
-	for _, coffee := range coffees {
-		t := coffee.TastingTraits
-		
+
+	for _, brew := range brews {
+		t := brew.TastingTraits
+
 		sums.BerryIntensity += t.BerryIntensity
 		sums.StonefruitIntensity += t.StonefruitIntensity
 		sums.RoastIntensity += t.RoastIntensity
@@ -364,7 +479,7 @@ func (s *StatisticsService) calculateTraitAverages(coffees []models.Coffee, stat
 		sums.Savory += t.Savory
 		sums.Body += t.Body
 		sums.Cleanliness += t.Cleanliness
-		
+
 		// Track min/max
 		mins.BerryIntensity = minInt(mins.BerryIntensity, t.BerryIntensity)
 		maxs.BerryIntensity = maxInt(maxs.BerryIntensity, t.BerryIntensity)
@@ -391,8 +506,8 @@ func (s *StatisticsService) calculateTraitAverages(coffees []models.Coffee, stat
 		mins.Cleanliness = minInt(mins.Cleanliness, t.Cleanliness)
 		maxs.Cleanliness = maxInt(maxs.Cleanliness, t.Cleanliness)
 	}
-	
-	count := len(coffees)
+
+	count := len(brews)
 	stats.TraitAverages = models.TastingTraits{
 		BerryIntensity:        sums.BerryIntensity / count,
 		StonefruitIntensity:   sums.StonefruitIntensity / count,
@@ -407,49 +522,49 @@ func (s *StatisticsService) calculateTraitAverages(coffees []models.Coffee, stat
 		Body:                  sums.Body / count,
 		Cleanliness:           sums.Cleanliness / count,
 	}
-	
+
 	stats.TraitRanges = TraitRanges{
-		BerryRange:      Range{Min: mins.BerryIntensity, Max: maxs.BerryIntensity},
-		StonefruitRange: Range{Min: mins.StonefruitIntensity, Max: maxs.StonefruitIntensity},
-		RoastRange:      Range{Min: mins.RoastIntensity, Max: maxs.RoastIntensity},
-		CitrusRange:     Range{Min: mins.CitrusFruitsIntensity, Max: maxs.CitrusFruitsIntensity},
-		BitternessRange: Range{Min: mins.Bitterness, Max: maxs.Bitterness},
-		FloralityRange:  Range{Min: mins.Florality, Max: maxs.Florality},
-		SpiceRange:      Range{Min: mins.Spice, Max: maxs.Spice},
-		SweetnessRange:  Range{Min: mins.Sweetness, Max: maxs.Sweetness},
-		AromaticRange:   Range{Min: mins.AromaticIntensity, Max: maxs.AromaticIntensity},
-		SavoryRange:     Range{Min: mins.Savory, Max: maxs.Savory},
-		BodyRange:       Range{Min: mins.Body, Max: maxs.Body},
+		BerryRange:       Range{Min: mins.BerryIntensity, Max: maxs.BerryIntensity},
+		StonefruitRange:  Range{Min: mins.StonefruitIntensity, Max: maxs.StonefruitIntensity},
+		RoastRange:       Range{Min: mins.RoastIntensity, Max: maxs.RoastIntensity},
+		CitrusRange:      Range{Min: mins.CitrusFruitsIntensity, Max: maxs.CitrusFruitsIntensity},
+		BitternessRange:  Range{Min: mins.Bitterness, Max: maxs.Bitterness},
+		FloralityRange:   Range{Min: mins.Florality, Max: maxs.Florality},
+		SpiceRange:       Range{Min: mins.Spice, Max: maxs.Spice},
+		SweetnessRange:   Range{Min: mins.Sweetness, Max: maxs.Sweetness},
+		AromaticRange:    Range{Min: mins.AromaticIntensity, Max: maxs.AromaticIntensity},
+		SavoryRange:      Range{Min: mins.Savory, Max: maxs.Savory},
+		BodyRange:        Range{Min: mins.Body, Max: maxs.Body},
 		CleanlinessRange: Range{Min: mins.Cleanliness, Max: maxs.Cleanliness},
 	}
 }
 
-// calculateBrewerStats calculates brewer/dripper statistics
-func (s *StatisticsService) calculateBrewerStats(coffees []models.Coffee, stats *Statistics) {
+// calculateBrewerStats calculates brewer/dripper statistics from brews
+func (s *StatisticsService) calculateBrewerStats(brews []models.Brew, stats *Statistics) {
 	brewerRatings := make(map[string][]int)
 	brewerTimes := make(map[string][]float64)
-	
-	for _, coffee := range coffees {
-		if coffee.Dripper == "" {
+
+	for _, brew := range brews {
+		if brew.Dripper == "" {
 			continue
 		}
-		
-		brewerRatings[coffee.Dripper] = append(brewerRatings[coffee.Dripper], coffee.Rating)
-		
+
+		brewerRatings[brew.Dripper] = append(brewerRatings[brew.Dripper], brew.Rating)
+
 		// Calculate brew time in seconds
-		brewTime := float64(coffee.EndTime.Minutes*60 + coffee.EndTime.Seconds)
+		brewTime := float64(brew.EndTime.Minutes*60 + brew.EndTime.Seconds)
 		if brewTime > 0 {
-			brewerTimes[coffee.Dripper] = append(brewerTimes[coffee.Dripper], brewTime)
+			brewerTimes[brew.Dripper] = append(brewerTimes[brew.Dripper], brewTime)
 		}
 	}
-	
+
 	for brewer, ratings := range brewerRatings {
 		sum := 0
 		for _, r := range ratings {
 			sum += r
 		}
 		avg := float64(sum) / float64(len(ratings))
-		
+
 		// Calculate average brew time
 		avgTime := 0.0
 		if times, ok := brewerTimes[brewer]; ok && len(times) > 0 {
@@ -459,7 +574,7 @@ func (s *StatisticsService) calculateBrewerStats(coffees []models.Coffee, stats 
 			}
 			avgTime = timeSum / float64(len(times))
 		}
-		
+
 		stats.BrewerStats[brewer] = BrewerStat{
 			Count:         len(ratings),
 			AverageRating: math.Round(avg*10) / 10,
