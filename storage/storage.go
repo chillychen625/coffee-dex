@@ -20,5 +20,6 @@ type BrewStorage interface {
 	GetBrewCount(coffeeID string) (int, error)
 	GetAll() ([]models.Brew, error)
 	GetRecent(limit int) ([]models.Brew, error)
+	GetRecentWithCoffee(limit int) ([]models.BrewWithCoffee, error)
 	Delete(id string) error
 }

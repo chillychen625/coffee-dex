@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../services/api";
+import FormDecoSprites from "./FormDecoSprites";
 
 interface Recipe {
   id: string;
@@ -173,9 +174,10 @@ const SpecialItems: React.FC<SpecialItemsProps> = ({ onBack }) => {
       <div className="pokemon-screen centered">
         <div
           className="pokemon-frame"
-          style={{ maxWidth: "600px", margin: "0 auto" }}
+          style={{ position: "relative" }}
         >
-          <div className="pokemon-loading">Loading Special Items</div>
+          <FormDecoSprites seed="brewers-loading" spin={true} />
+          <div className="pokemon-loading" style={{ position: "relative", zIndex: 1 }}>Loading Special Items</div>
         </div>
       </div>
     );
@@ -187,16 +189,18 @@ const SpecialItems: React.FC<SpecialItemsProps> = ({ onBack }) => {
       <div className="pokemon-screen centered">
         <div
           className="pokemon-frame"
-          style={{ maxWidth: "280px", margin: "0 auto" }}
+          style={{ maxWidth: "320px", margin: "0 auto", position: "relative" }}
         >
+          <FormDecoSprites seed="create-brewer" spin={true} />
           <button
             className="pokemon-button mb-md"
             onClick={() => setShowCreateForm(false)}
+            style={{ position: "relative", zIndex: 1 }}
           >
             ← Back
           </button>
 
-          <h2 className="pokemon-title" style={{ fontSize: "12px" }}>
+          <h2 className="pokemon-title" style={{ fontSize: "12px", position: "relative", zIndex: 1 }}>
             CREATE BREWER
           </h2>
 
@@ -290,8 +294,9 @@ const SpecialItems: React.FC<SpecialItemsProps> = ({ onBack }) => {
       <div className="pokemon-screen centered">
         <div
           className="pokemon-frame"
-          style={{ maxWidth: "280px", margin: "0 auto" }}
+          style={{ maxWidth: "320px", margin: "0 auto", position: "relative" }}
         >
+          <FormDecoSprites seed="add-recipe" spin={true} />
           <button
             className="pokemon-button mb-md"
             onClick={() => {
@@ -300,11 +305,12 @@ const SpecialItems: React.FC<SpecialItemsProps> = ({ onBack }) => {
               setRecipeName("");
               setError(null);
             }}
+            style={{ position: "relative", zIndex: 1 }}
           >
             ← Back
           </button>
 
-          <h2 className="pokemon-title" style={{ fontSize: "12px" }}>
+          <h2 className="pokemon-title" style={{ fontSize: "12px", position: "relative", zIndex: 1 }}>
             ADD RECIPE
           </h2>
 
@@ -400,11 +406,13 @@ const SpecialItems: React.FC<SpecialItemsProps> = ({ onBack }) => {
       <div className="pokemon-screen centered">
         <div
           className="pokemon-frame"
-          style={{ maxWidth: "600px", margin: "0 auto" }}
+          style={{ position: "relative" }}
         >
+          <FormDecoSprites seed={`brewer-${selectedBrewer.id}`} spin={true} />
           <button
             className="pokemon-button mb-md"
             onClick={() => setSelectedBrewer(null)}
+            style={{ position: "relative", zIndex: 1 }}
           >
             ← Back
           </button>
@@ -518,13 +526,14 @@ const SpecialItems: React.FC<SpecialItemsProps> = ({ onBack }) => {
     <div className="pokemon-screen centered">
       <div
         className="pokemon-frame"
-        style={{ maxWidth: "600px", margin: "0 auto" }}
+        style={{ position: "relative" }}
       >
-        <button className="pokemon-button mb-md" onClick={onBack}>
+        <FormDecoSprites seed="special-items" spin={true} />
+        <button className="pokemon-button mb-md" onClick={onBack} style={{ position: "relative", zIndex: 1 }}>
           ← Back
         </button>
 
-        <h2 className="pokemon-title" style={{ fontSize: "14px" }}>
+        <h2 className="pokemon-title" style={{ fontSize: "14px", position: "relative", zIndex: 1 }}>
           SPECIAL ITEMS
         </h2>
 

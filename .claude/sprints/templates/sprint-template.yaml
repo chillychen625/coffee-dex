@@ -1,0 +1,98 @@
+# Sprint Template
+# Copy this file to ../active/sprint-YYYY-MM-DD-{name}.yaml
+
+id: sprint-YYYY-MM-DD-name
+name: "Human Readable Sprint Name"
+project: oztam-data-analyst
+status: ready  # ready | in_progress | completed | blocked
+
+created: YYYY-MM-DD
+target_start: YYYY-MM-DD
+target_end: YYYY-MM-DD
+
+# Which goal does this sprint advance?
+goal_id: goal-1
+
+# Clear, measurable exit criteria
+goal: |
+  What this sprint delivers.
+  Exit criteria: Specific measurable outcome.
+
+# Background context for the executing agent
+context: |
+  Why this sprint exists.
+  What has been done before.
+  Key references and constraints.
+
+# Measurable success criteria
+success_criteria:
+  - Criterion 1 (testable)
+  - Criterion 2 (testable)
+  - Criterion 3 (testable)
+
+# Handoffs are units of work within the sprint
+# Execute in dependency order
+handoffs:
+  - id: "SPRINT-001-setup"  # Replace SPRINT with sprint prefix
+    title: "Handoff Title"
+    priority: P0  # P0 = blocking, P1 = important, P2 = nice-to-have
+    estimate_hours: 2
+    status: pending  # pending | in_progress | completed | blocked
+    description: |
+      What to do in this handoff.
+      Be specific and actionable.
+    acceptance_criteria:
+      - Criterion 1
+      - Criterion 2
+    blocked_by: []  # IDs of handoffs that must complete first
+
+  - id: "SPRINT-002-implement"  # Replace SPRINT with sprint prefix
+    title: "Second Handoff"
+    priority: P0
+    estimate_hours: 3
+    status: pending
+    description: |
+      Second unit of work.
+    acceptance_criteria:
+      - Criterion 1
+    blocked_by:
+      - "SPRINT-001-setup"
+
+  # ALWAYS include this final handoff - it commits and verifies CI
+  - id: "SPRINT-999-commit-verify"  # Replace SPRINT with sprint prefix
+    title: "Commit, Verify CI, Update Goal Progress"
+    priority: P0
+    estimate_hours: 0.5
+    status: pending
+    description: |
+      Final sprint handoff: commit all changes, verify CI, and update goal progress.
+
+      This handoff ensures:
+      1. All sprint work is committed with proper messages
+      2. Changes are pushed to remote
+      3. CI pipeline passes
+      4. Goal progress is updated in project.yaml
+
+      DO NOT skip this handoff. DO NOT mark sprint complete until CI is green.
+
+      GOAL PROGRESS UPDATE:
+      - Open .claude/project.yaml
+      - Find the goal this sprint advances (goal_id field above)
+      - Mark any newly satisfied success_criteria as completed: true
+      - Recalculate progress: (completed criteria / total criteria) * 100
+      - Update the goal's progress field
+    acceptance_criteria:
+      - All changes committed with descriptive commit message
+      - Changes pushed to remote branch
+      - CI pipeline triggered and passed
+      - No uncommitted changes remain
+      - Goal success_criteria updated for completed items
+      - Goal progress percentage recalculated
+    blocked_by:
+      # Add ALL preceding handoff IDs here
+      - "SPRINT-001-setup"
+      - "SPRINT-002-implement"
+
+# Optional notes
+notes: |
+  Additional context, links, or considerations.

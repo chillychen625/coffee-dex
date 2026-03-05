@@ -137,6 +137,71 @@ func (m *MySQLBrewStorage) GetRecent(limit int) ([]models.Brew, error) {
 	return m.scanBrews(rows)
 }
 
+// GetRecentWithCoffee retrieves the most recent brews joined with coffee info
+func (m *MySQLBrewStorage) GetRecentWithCoffee(limit int) ([]models.BrewWithCoffee, error) {
+	query := `
+		SELECT b.id, b.coffee_id, b.tasting_notes, b.tasting_traits, b.rating, b.recipe, b.dripper,
+		       b.end_time_minutes, b.end_time_seconds, b.created_at,
+		       c.name AS coffee_name, c.origin AS coffee_origin, c.roast_date
+		FROM brews b
+		JOIN coffees c ON b.coffee_id = c.id
+		ORDER BY b.created_at DESC
+		LIMIT ?
+	`
+
+	rows, err := m.db.Query(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recent brews with coffee: %w", err)
+	}
+	defer rows.Close()
+
+	var results []models.BrewWithCoffee
+
+	for rows.Next() {
+		var bwc models.BrewWithCoffee
+		var tastingNotesJSON, tastingTraitsJSON, recipeJSON []byte
+		var roastDate sql.NullTime
+
+		err := rows.Scan(
+			&bwc.ID, &bwc.CoffeeID,
+			&tastingNotesJSON, &tastingTraitsJSON, &bwc.Rating, &recipeJSON, &bwc.Dripper,
+			&bwc.EndTime.Minutes, &bwc.EndTime.Seconds,
+			&bwc.CreatedAt,
+			&bwc.CoffeeName, &bwc.CoffeeOrigin, &roastDate,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan brew with coffee: %w", err)
+		}
+
+		if err := json.Unmarshal(tastingNotesJSON, &bwc.TastingNotes); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tasting notes: %w", err)
+		}
+
+		if err := json.Unmarshal(tastingTraitsJSON, &bwc.TastingTraits); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tasting traits: %w", err)
+		}
+
+		if err := json.Unmarshal(recipeJSON, &bwc.Recipe); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal recipe: %w", err)
+		}
+
+		// Calculate days off roast from the coffee's roast date
+		if roastDate.Valid {
+			bwc.DaysOffRoast = int(bwc.CreatedAt.Sub(roastDate.Time).Hours() / 24)
+		} else {
+			bwc.DaysOffRoast = -1
+		}
+
+		results = append(results, bwc)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return results, nil
+}
+
 // Delete removes a brew entry from the database
 func (m *MySQLBrewStorage) Delete(id string) error {
 	query := "DELETE FROM brews WHERE id = ?"

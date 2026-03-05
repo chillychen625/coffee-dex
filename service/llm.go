@@ -5,216 +5,224 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-coffee-log/models"
-	"io"
 	"log"
-	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 )
 
-// LLMService handles communication with Ollama for Pokemon mapping
-type LLMService struct {
-	client  *http.Client
-	baseURL string
+// ClaudeService handles Pokemon selection via the Claude CLI
+type ClaudeService struct {
 	model   string
 	timeout time.Duration
 }
 
-// NewLLMService creates a new LLM service for Ollama
-func NewLLMService(baseURL string, model string) *LLMService {
-	return &LLMService{
-		client:  &http.Client{Timeout: 30 * time.Second},
-		baseURL: baseURL,
+// NewClaudeService creates a new Claude CLI service
+func NewClaudeService(model string) *ClaudeService {
+	return &ClaudeService{
 		model:   model,
-		timeout: 30 * time.Second,
+		timeout: 120 * time.Second,
 	}
 }
 
-// Note: The old MapCoffeeToPokemon method has been replaced by MapCoffeeToPokemonWithTraits
-// which accepts aggregated brew data instead of coffee with embedded tasting fields.
-
-// formatTraits formats coffee traits for LLM prompt
-func (s *LLMService) formatTraits(traits models.TastingTraits) string {
-	highTraits := []string{}
-	
-	if traits.Sweetness >= 7 {
-		highTraits = append(highTraits, fmt.Sprintf("high sweetness (%d)", traits.Sweetness))
-	}
-	if traits.Bitterness >= 7 {
-		highTraits = append(highTraits, fmt.Sprintf("high bitterness (%d)", traits.Bitterness))
-	}
-	if traits.CitrusFruitsIntensity >= 7 {
-		highTraits = append(highTraits, fmt.Sprintf("high citrus (%d)", traits.CitrusFruitsIntensity))
-	}
-	if traits.Florality >= 7 {
-		highTraits = append(highTraits, fmt.Sprintf("high florality (%d)", traits.Florality))
-	}
-	if traits.Body >= 7 {
-		highTraits = append(highTraits, fmt.Sprintf("full body (%d)", traits.Body))
-	}
-	if traits.AromaticIntensity >= 7 {
-		highTraits = append(highTraits, fmt.Sprintf("high aroma (%d)", traits.AromaticIntensity))
-	}
-	
-	if len(highTraits) == 0 {
-		return "balanced traits"
-	}
-	
-	return strings.Join(highTraits, ", ")
+// ClaudeResponse is the JSON response from Claude for Pokemon selection
+type ClaudeResponse struct {
+	PokemonName string  `json:"pokemon_name"`
+	PokemonID   int     `json:"pokemon_id"`
+	Confidence  float64 `json:"confidence"`
+	Description string  `json:"description"`
 }
 
-// parseLLMResponse parses the LLM response
-func (s *LLMService) parseLLMResponse(response string) (*models.LLMMappingResponse, error) {
-	// Clean up the response to extract JSON
-	response = strings.TrimSpace(response)
-	
-	// Remove any markdown code blocks
-	response = strings.ReplaceAll(response, "```json", "")
-	response = strings.ReplaceAll(response, "```", "")
-	
-	var mappingResponse models.LLMMappingResponse
-	if err := json.Unmarshal([]byte(response), &mappingResponse); err != nil {
-		// Try to fix common JSON issues
-		log.Printf("Failed to parse LLM response as JSON: %s", response)
-		
-		// Fallback: try to extract Pokemon name using regex-like parsing
-		return s.fallbackParse(response), nil
+// SelectPokemon asks Claude to pick a Pokemon for a coffee from available Pokemon
+func (s *ClaudeService) SelectPokemon(
+	coffee models.Coffee,
+	traits models.TastingTraits,
+	combinedNotes []string,
+	typeHints map[string]float64,
+	availablePokemon []models.Pokemon,
+) (*ClaudeResponse, error) {
+	prompt := s.buildPrompt(coffee, traits, combinedNotes, typeHints, availablePokemon)
+
+	log.Printf("Calling Claude CLI for Pokemon selection (coffee: %s, %d available Pokemon)", coffee.Name, len(availablePokemon))
+
+	// Build the command: pipe prompt via stdin to handle long prompts
+	cmd := exec.Command("claude", "-p", "--output-format", "json", "--model", s.model, "--no-session-persistence")
+	cmd.Stdin = bytes.NewBufferString(prompt)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// Run with timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Run()
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s)", err, stderr.String())
+		}
+	case <-time.After(s.timeout):
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		return nil, fmt.Errorf("claude CLI timed out after %s", s.timeout)
 	}
-	
-	return &mappingResponse, nil
+
+	// Parse the JSON output from Claude CLI
+	// The --output-format json wraps the response; extract the result text
+	output := stdout.Bytes()
+
+	var cliResponse struct {
+		Result string `json:"result"`
+	}
+	if err := json.Unmarshal(output, &cliResponse); err != nil {
+		// Maybe it returned the JSON directly
+		return s.parseResponse(output, availablePokemon)
+	}
+
+	if cliResponse.Result != "" {
+		return s.parseResponse([]byte(cliResponse.Result), availablePokemon)
+	}
+
+	// Try parsing the raw output
+	return s.parseResponse(output, availablePokemon)
 }
 
-// fallbackParse provides a basic fallback when JSON parsing fails
-func (s *LLMService) fallbackParse(response string) *models.LLMMappingResponse {
-	// Simple fallback - look for common Pokemon names
-	pokemonNames := []string{"bulbasaur", "charmander", "squirtle", "pikachu", "jigglypuff"}
-	
-	var selectedPokemon string
-	for _, name := range pokemonNames {
-		if strings.Contains(strings.ToLower(response), name) {
-			selectedPokemon = name
+// parseResponse extracts the ClaudeResponse from Claude's output
+func (s *ClaudeService) parseResponse(data []byte, availablePokemon []models.Pokemon) (*ClaudeResponse, error) {
+	text := string(data)
+
+	// Strip markdown code blocks if present
+	text = strings.ReplaceAll(text, "```json", "")
+	text = strings.ReplaceAll(text, "```", "")
+	text = strings.TrimSpace(text)
+
+	// Extract JSON object
+	if start := strings.Index(text, "{"); start >= 0 {
+		if end := strings.LastIndex(text, "}"); end > start {
+			text = text[start : end+1]
+		}
+	}
+
+	var resp ClaudeResponse
+	if err := json.Unmarshal([]byte(text), &resp); err != nil {
+		return nil, fmt.Errorf("failed to parse Claude response as JSON: %w\nraw: %s", err, string(data))
+	}
+
+	// Validate that the selected Pokemon is actually in the available list
+	valid := false
+	for _, p := range availablePokemon {
+		if p.ID == resp.PokemonID {
+			valid = true
+			// Ensure the name matches the ID
+			resp.PokemonName = p.Name
 			break
 		}
 	}
-	
-	if selectedPokemon == "" {
-		selectedPokemon = "bulbasaur" // Default fallback
+	if !valid {
+		// Try matching by name as fallback
+		for _, p := range availablePokemon {
+			if strings.EqualFold(p.Name, resp.PokemonName) {
+				resp.PokemonID = p.ID
+				resp.PokemonName = p.Name
+				valid = true
+				break
+			}
+		}
 	}
-	
-	return &models.LLMMappingResponse{
-		SelectedPokemon: selectedPokemon,
-		Confidence:      0.5,
-		Description:     "Fallback mapping due to parsing error",
-		TraitMapping: []models.TraitMapping{
-			{Trait: "general", PokemonStat: "HP", Reasoning: "Basic fallback mapping"},
-		},
+	if !valid {
+		return nil, fmt.Errorf("Claude selected Pokemon %q (ID %d) which is not in the available list", resp.PokemonName, resp.PokemonID)
 	}
+
+	return &resp, nil
 }
 
-// MapCoffeeToPokemonWithTraits maps coffee to Pokemon using aggregated traits and notes
-func (s *LLMService) MapCoffeeToPokemonWithTraits(
+// buildPrompt creates the prompt for Claude to select a Pokemon
+func (s *ClaudeService) buildPrompt(
 	coffee models.Coffee,
 	traits models.TastingTraits,
 	combinedNotes []string,
-	candidates []models.Pokemon,
-) (*models.LLMMappingResponse, error) {
-	prompt := s.buildPromptWithTraits(coffee, traits, combinedNotes, candidates)
-
-	payload := map[string]interface{}{
-		"model":  s.model,
-		"prompt": prompt,
-		"stream": false,
-		"format": "json",
-	}
-
-	jsonPayload, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	req, err := http.NewRequest("POST", s.baseURL+"/api/generate", bytes.NewBuffer(jsonPayload))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: s.timeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call LLM: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("LLM API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var response struct {
-		Response string `json:"response"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode LLM response: %w", err)
-	}
-
-	return s.parseLLMResponse(response.Response)
-}
-
-// buildPromptWithTraits creates the prompt for LLM mapping with aggregated data
-func (s *LLMService) buildPromptWithTraits(
-	coffee models.Coffee,
-	traits models.TastingTraits,
-	combinedNotes []string,
-	candidates []models.Pokemon,
+	typeHints map[string]float64,
+	availablePokemon []models.Pokemon,
 ) string {
-	var candidateNames []string
-	for _, candidate := range candidates {
-		candidateNames = append(candidateNames, candidate.Name)
+	// Build type hints string (sorted by score)
+	var typeHintParts []string
+	for typeName, score := range typeHints {
+		if score > 0.3 {
+			typeHintParts = append(typeHintParts, fmt.Sprintf("%s (%.0f%%)", typeName, score*100))
+		}
+	}
+	typeHintStr := "None strong enough"
+	if len(typeHintParts) > 0 {
+		typeHintStr = strings.Join(typeHintParts, ", ")
 	}
 
-	traitDescription := s.formatTraits(traits)
+	// Build available Pokemon list
+	var pokemonList []string
+	for _, p := range availablePokemon {
+		pokemonList = append(pokemonList, fmt.Sprintf("- #%d %s (%s)", p.ID, p.Name, p.Type))
+	}
 
-	prompt := fmt.Sprintf(`You are a Pokemon expert specializing in coffee-Pokemon mappings.
-Given a coffee's characteristics (aggregated from multiple brews), select the best Gen 1 Pokemon match and write a Pokedex-style description.
+	// Build notes string
+	notesStr := "none recorded"
+	filteredNotes := make([]string, 0)
+	for _, n := range combinedNotes {
+		if n != "" {
+			filteredNotes = append(filteredNotes, n)
+		}
+	}
+	if len(filteredNotes) > 0 {
+		notesStr = strings.Join(filteredNotes, ", ")
+	}
 
-Coffee: %s from %s
-Tasting Notes (from all brews): %s
-Dominant Traits (averaged): %s
+	prompt := fmt.Sprintf(`You are the CoffeeDex - a fun Pokemon-themed coffee journal. A user just logged enough brews of a coffee to unlock a Pokemon companion for it. Your job is to pick a Pokemon and write a fun, entertaining Pokedex-style entry.
 
-Available Pokemon: %s
+COFFEE:
+- Name: %s
+- Origin: %s
+- Roaster: %s
+- Variety: %s
+- Roast Level: %s
+- Processing: %s
 
-Respond with ONLY valid JSON:
+TASTING NOTES FROM BREWS: %s
+
+FLAVOR SCORES (0-10, -1 means not scored):
+Sweetness: %d, Bitterness: %d, Citrus: %d, Berry: %d, Stonefruit: %d, Florality: %d, Roast: %d, Spice: %d, Aroma: %d, Savory: %d, Body: %d, Cleanliness: %d
+
+TYPE SUGGESTIONS (hints from flavor mapping, not constraints): %s
+
+AVAILABLE POKEMON (pick ONLY from this list):
+%s
+
+YOUR TASK:
+1. Pick the Pokemon that best vibes with this coffee's flavor profile and personality.
+2. Write a fun 2-4 sentence Pokedex-style description that:
+   - References specific tasting notes the user logged
+   - Connects them to Pokemon lore (anime moments, game abilities, Pokedex entries, type matchups, etc.)
+   - Is entertaining and playful, not dry or technical
+   - Makes the user smile and feel like the Pokemon "gets" their coffee
+
+The type suggestions are just hints - feel free to pick any Pokemon from the available list that feels right.
+
+Respond with ONLY this JSON:
 {
-  "selected_pokemon": "exact_pokemon_name",
-  "confidence": 0.95,
-  "description": "Pokedex-style description connecting coffee traits to Pokemon characteristics",
-  "trait_mapping": [
-    {"trait": "sweetness", "pokemon_stat": "HP", "reasoning": "sweet coffee provides sustained energy"},
-    {"trait": "bitterness", "pokemon_stat": "Attack", "reasoning": "bitterness represents bold, attacking flavors"}
-  ]
-}`, coffee.Name, coffee.Origin, strings.Join(combinedNotes, ", "), traitDescription, strings.Join(candidateNames, ", "))
+  "pokemon_name": "ExactName",
+  "pokemon_id": 123,
+  "confidence": 0.85,
+  "description": "Your fun description here"
+}`,
+		coffee.Name, coffee.Origin, coffee.Roaster, coffee.Variety,
+		coffee.RoastLevel, coffee.ProcessingMethod,
+		notesStr,
+		traits.Sweetness, traits.Bitterness, traits.CitrusFruitsIntensity, traits.BerryIntensity,
+		traits.StonefruitIntensity, traits.Florality, traits.RoastIntensity, traits.Spice,
+		traits.AromaticIntensity, traits.Savory, traits.Body, traits.Cleanliness,
+		typeHintStr,
+		strings.Join(pokemonList, "\n"))
 
 	return prompt
-}
-
-// TestConnection tests the connection to LLM service
-func (s *LLMService) TestConnection() error {
-	req, err := http.NewRequest("GET", s.baseURL+"/api/tags", nil)
-	if err != nil {
-		return fmt.Errorf("failed to create test request: %w", err)
-	}
-	
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("failed to connect to LLM: %w", err)
-	}
-	defer resp.Body.Close()
-	
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("LLM service returned status %d", resp.StatusCode)
-	}
-	
-	return nil
 }

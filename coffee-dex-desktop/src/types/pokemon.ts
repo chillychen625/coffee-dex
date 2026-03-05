@@ -20,6 +20,7 @@ export interface CoffeePokemon {
   coffee_id: string;
   pokemon_id: number;
   pokemon_name: string;
+  pokemon_type: string; // Type of the Pokemon (e.g., "Fire", "Water/Flying")
   nickname?: string;
   level: number;
   mapping_confidence: number;
@@ -60,6 +61,8 @@ export interface Coffee {
   variety: string;
   roast_level: RoastLevel;
   processing_method: ProcessingMethod;
+  roast_date?: string; // ISO date string (YYYY-MM-DD)
+  is_finished: boolean; // True if bag is finished (allows Pokemon gen with 1 brew)
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +78,13 @@ export interface Brew {
   dripper: string;
   end_time: DrawDownTime;
   created_at: string;
+  days_off_roast: number; // Days between roast date and brew date (-1 if no roast date)
+}
+
+// Brew with associated coffee info (for recent brews display)
+export interface BrewWithCoffee extends Brew {
+  coffee_name: string;
+  coffee_origin: string;
 }
 
 // Coffee with brew stats for list view
@@ -83,6 +93,7 @@ export interface CoffeeWithBrewStats extends Coffee {
   average_rating: number;
   can_generate_pokemon: boolean;
   has_pokemon: boolean;
+  days_off_roast: number; // Current days off roast (-1 if no roast date)
 }
 
 // Brew progress for Pokemon generation
@@ -91,6 +102,7 @@ export interface BrewProgress {
   required: number;
   can_generate_pokemon: boolean;
   has_pokemon: boolean;
+  is_finished: boolean;
 }
 
 export interface DrawDownTime {

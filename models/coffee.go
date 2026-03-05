@@ -1,10 +1,55 @@
 package models
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// DateOnly is a custom type that handles JSON dates in "YYYY-MM-DD" format
+type DateOnly time.Time
+
+// UnmarshalJSON parses dates in "YYYY-MM-DD" format (from HTML date inputs)
+func (d *DateOnly) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if s == "" {
+		return nil
+	}
+	// Try parsing as simple date first (YYYY-MM-DD)
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		// Fall back to RFC3339
+		t, err = time.Parse(time.RFC3339, s)
+		if err != nil {
+			return fmt.Errorf("invalid date format: %s", s)
+		}
+	}
+	*d = DateOnly(t)
+	return nil
+}
+
+// MarshalJSON outputs the date in "YYYY-MM-DD" format
+func (d DateOnly) MarshalJSON() ([]byte, error) {
+	t := time.Time(d)
+	if t.IsZero() {
+		return json.Marshal(nil)
+	}
+	return json.Marshal(t.Format("2006-01-02"))
+}
+
+// Time returns the underlying time.Time value
+func (d DateOnly) Time() time.Time {
+	return time.Time(d)
+}
+
+// IsZero reports whether the date is zero
+func (d DateOnly) IsZero() bool {
+	return time.Time(d).IsZero()
+}
 
 // DrawDownTime represents brew time in minutes and seconds
 type DrawDownTime struct {
@@ -37,8 +82,26 @@ type Coffee struct {
 	Variety          string    `json:"variety"`
 	RoastLevel       string    `json:"roast_level"`
 	ProcessingMethod string    `json:"processing_method"`
+	RoastDate        *DateOnly `json:"roast_date,omitempty"`
+	IsFinished       bool      `json:"is_finished"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// DaysOffRoast calculates days since roasting. Returns -1 if no roast date set.
+func (c *Coffee) DaysOffRoast() int {
+	if c.RoastDate == nil || c.RoastDate.IsZero() {
+		return -1
+	}
+	return int(time.Since(c.RoastDate.Time()).Hours() / 24)
+}
+
+// DaysOffRoastAt calculates days off roast at a specific time (e.g., when a brew was made)
+func (c *Coffee) DaysOffRoastAt(t time.Time) int {
+	if c.RoastDate == nil || c.RoastDate.IsZero() {
+		return -1
+	}
+	return int(t.Sub(c.RoastDate.Time()).Hours() / 24)
 }
 
 // CoffeeWithBrewStats includes brew statistics for UI display
@@ -48,6 +111,7 @@ type CoffeeWithBrewStats struct {
 	AverageRating      float64 `json:"average_rating"`
 	CanGeneratePokemon bool    `json:"can_generate_pokemon"`
 	HasPokemon         bool    `json:"has_pokemon"`
+	DaysOffRoast       int     `json:"days_off_roast"` // -1 if no roast date
 }
 
 func (t *TastingTraits) Validate() error {
@@ -70,8 +134,9 @@ func (t *TastingTraits) Validate() error {
 	}
 
 	for _, trait := range traits {
-		if trait.value < 0 || trait.value > 10 {
-			return fmt.Errorf("%s must be between 0 and 10, got %d", trait.name, trait.value)
+		// -1 means "not scored" (trait was skipped), 0-10 is the valid range
+		if trait.value != -1 && (trait.value < 0 || trait.value > 10) {
+			return fmt.Errorf("%s must be -1 (not scored) or between 0 and 10, got %d", trait.name, trait.value)
 		}
 	}
 

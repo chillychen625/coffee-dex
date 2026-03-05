@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"go-coffee-log/models"
 	"go-coffee-log/service"
 	"log"
 	"net/http"
@@ -60,7 +61,12 @@ func (h *BrewerHandler) GetAllBrewers(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get brewers: %v", err))
 		return
 	}
-	
+
+	// Ensure we return an empty array, not null
+	if brewers == nil {
+		brewers = []models.Brewer{}
+	}
+
 	respondJSON(w, http.StatusOK, brewers)
 }
 

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS coffees (
     variety VARCHAR(255),
     roast_level VARCHAR(50),
     processing_method VARCHAR(100),
+    roast_date DATE,
     created_at DATETIME,
     updated_at DATETIME
 );

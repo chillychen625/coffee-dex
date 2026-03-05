@@ -1,0 +1,194 @@
+project:
+  name: "CoffeeDex"
+  slug: "coffee-dex"
+  status: active
+  description: |
+    Pokemon-themed coffee logging desktop app. Go backend with MySQL storage,
+    Electron + React frontend. Log coffees and brews, generate Pokemon from
+    tasting profiles, track stats and gym badges.
+
+focus:
+  area: "Goal 6 & 7 - Widget UX Overhaul"
+  sprint: null
+  updated: "2026-02-25"
+  notes: |
+    Goals 1, 2, 5 complete. Before tackling insights (goal-3), polish
+    the widget UX to take advantage of the tall layout - redesign home
+    screen and convert forms to vertical scrollers.
+
+goals:
+  - id: goal-1
+    title: "Brew Logging Polish"
+    priority: P0
+    status: completed
+    progress: 100
+    description: |
+      Polish the brew logging experience with charts, recent brews, and
+      optional trait scoring.
+    success_criteria:
+      - text: "Brew metrics chart on coffee detail view"
+        completed: true
+      - text: "Recent brews view replacing quick brew"
+        completed: true
+      - text: "Optional trait scoring in brew form"
+        completed: true
+    target_date: null
+
+  - id: goal-2
+    title: "Game Feel & Reward Loop"
+    priority: P0
+    status: completed
+    progress: 100
+    description: |
+      Make the app feel like a game you want to open. Celebrate moments,
+      add life to screens, make logging brews feel rewarding.
+    success_criteria:
+      - text: "Brew success screen - animated progress bar fill, Pokemon sprite if exists, encouraging message"
+        completed: true
+      - text: "Home screen dashboard - recent Pokemon catch, featured coffee with flavor wheel, running totals"
+        completed: true
+      - text: "Type-colored UI accents on Pokedex entries and coffee detail (frame borders tinted by Pokemon type)"
+        completed: true
+      - text: "Pokemon encounter animation on generation (screen flash, sprite slide-in, wild Pokemon appeared)"
+        completed: true
+    target_date: null
+
+  - id: goal-3
+    title: "Coffee Insights Engine"
+    priority: P1
+    status: pending
+    progress: 0
+    description: |
+      Surface the patterns and insights that specialty coffee enthusiasts
+      actually care about. Turn logged data into actionable knowledge.
+    success_criteria:
+      - text: "Days off roast sweet spot - show peak rating window per coffee and across all coffees"
+        completed: false
+      - text: "Recipe tracking - select recipe from brewer when logging, correlate recipes with ratings per roast level and origin"
+        completed: false
+      - text: "Roaster analytics - top roasters by avg rating, per-roaster breakdowns by process/origin, trends"
+        completed: false
+      - text: "Rating vs days off roast chart option in BrewChart"
+        completed: false
+    target_date: null
+
+  - id: goal-4
+    title: "AI Recommendations & Discovery"
+    priority: P2
+    status: pending
+    progress: 0
+    description: |
+      Use AI and web search to recommend next bags based on tasting
+      preferences, favorite roasters, origins, and processing methods.
+      Help users discover new coffees from both local and notable roasters.
+    success_criteria:
+      - text: "Taste profile summary - generate a profile of user preferences from brew history (preferred origins, processes, flavor notes)"
+        completed: false
+      - text: "Roaster catalog integration - web search to find current offerings from roasters the user has logged"
+        completed: false
+      - text: "Recommendation engine - suggest next bags based on what the user has rated highly, with reasoning"
+        completed: false
+      - text: "Discovery mode - surface popular/notable roasters and producers the user hasn't tried, matched to their profile"
+        completed: false
+      - text: "Local roaster awareness - ability to set location and prioritize local recommendations"
+        completed: false
+    target_date: null
+
+  - id: goal-5
+    title: "Widget Layout Polish"
+    priority: P0
+    status: completed
+    progress: 100
+    description: |
+      Lock in the app as a narrow, tall desktop widget. 640px wide, full screen
+      height. Standardize panel sizing so every view feels consistent and
+      intentional rather than floating in variable space.
+    success_criteria:
+      - text: "Window is 640px wide by full screen height, not resizable horizontally, opens pinned to screen edge"
+        completed: true
+      - text: "Remove centered vertical alignment - content flows top-down, no vertical centering of frames"
+        completed: true
+      - text: "Standardize frame width - remove per-view maxWidth/margin:auto, frames fill the column consistently"
+        completed: true
+      - text: "Consistent panel spacing and padding across all views - uniform gaps, no layout jitter between screens"
+        completed: true
+      - text: "Always-on-top toggle in settings or title bar so the widget can float above other windows"
+        completed: true
+    target_date: null
+
+  - id: goal-6
+    title: "Home Screen Redesign"
+    priority: P0
+    status: completed
+    progress: 100
+    description: |
+      Redesign the home screen from a compact 2-column button grid into a
+      stylized single-column vertical menu that takes advantage of the tall
+      widget layout. Inspired by Pokemon game menus - each nav item is a
+      full-width panel with personality, grouped into sections with dividers
+      and live stat badges.
+    success_criteria:
+      - text: "Single-column nav items as styled panels - each with label, subtitle description, and right-aligned count/icon badge"
+        completed: true
+      - text: "Section grouping with pixel-style dividers - Brewing, Collection, Trainer sections"
+        completed: true
+      - text: "Compact stats header row replacing the large dashboard stats textbox - coffees/brews/pokemon counts inline"
+        completed: true
+      - text: "Live count badges on nav items pulled from dashboard stats (open bags count, brew count, pokedex X/151)"
+        completed: true
+      - text: "Transient screens (start, brew success, encounter) centered vertically with appropriately sized content"
+        completed: true
+    target_date: null
+
+  - id: goal-7
+    title: "Vertical Scroll Forms"
+    priority: P0
+    status: completed
+    progress: 100
+    description: |
+      Convert CoffeeForm and BrewForm from multi-step tabbed wizards into
+      single-page vertical scrolling forms. The tall widget layout has the
+      vertical real estate to show all fields at once, making the step-based
+      flow unnecessary and confusing.
+    success_criteria:
+      - text: "CoffeeForm - all fields visible in one scrolling view with section headers (Bean Info, Roast Details), no step navigation"
+        completed: true
+      - text: "BrewForm - all fields visible in one scrolling view with section headers (Brew Setup, Tasting Notes, Trait Scoring), no step navigation"
+        completed: true
+      - text: "Submit button visible at bottom of each form, sticky or naturally positioned after last field"
+        completed: true
+      - text: "Trait scoring section in BrewForm remains optional/collapsible but visible inline rather than hidden behind a tab"
+        completed: true
+    target_date: null
+
+  - id: goal-8
+    title: "Pokemon Assignment Overhaul"
+    priority: P1
+    status: completed
+    progress: 100
+    description: |
+      Full overhaul of the Pokemon generation pipeline. Replace Ollama with
+      claude -p CLI calls. Keep trait-to-type mapper as suggestion input,
+      pass all unassigned Pokemon + tasting notes + type hints to Claude,
+      get back a fun Pokemon pick with a lore-based description. No more
+      mismatch bugs — uniqueness handled upstream by only passing available
+      Pokemon. Pokedex entry becomes a full coffee detail view (brew charts,
+      averages, all brews) with Pokemon + description on top, replacing the
+      current 3-page card layout.
+    success_criteria:
+      - text: "Replace Ollama with claude -p CLI for Pokemon selection"
+        completed: true
+      - text: "Pass only unassigned Pokemon to LLM — no post-hoc uniqueness shuffling"
+        completed: true
+      - text: "Fun lore-based descriptions referencing tasting notes and Pokemon TV show/game moments"
+        completed: true
+      - text: "Simplified JSON contract — pokemon_name, pokemon_id, confidence, description (no trait_mapping)"
+        completed: true
+      - text: "Pokedex entry shows full coffee detail (brew charts, averages, brew list) with Pokemon + description on top"
+        completed: true
+    target_date: null
+
+docs:
+  prd: null
+  api_spec: null
+  test_plan: null

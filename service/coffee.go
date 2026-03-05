@@ -97,3 +97,20 @@ func (s *CoffeeService) DeleteCoffee(id string) error {
 	}
 	return nil
 }
+
+// MarkAsFinished marks a coffee bag as finished (allows Pokemon generation with fewer brews)
+func (s *CoffeeService) MarkAsFinished(id string) (models.Coffee, error) {
+	coffee, err := s.storage.GetByID(id)
+	if err != nil {
+		return models.Coffee{}, err
+	}
+
+	coffee.IsFinished = true
+	coffee.UpdatedAt = time.Now()
+
+	if err := s.storage.Update(id, coffee); err != nil {
+		return models.Coffee{}, err
+	}
+
+	return coffee, nil
+}

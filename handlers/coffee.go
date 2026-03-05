@@ -152,6 +152,20 @@ func (h *CoffeeHandler) DeleteCoffee(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)  // ← Don't use respondJSON for 204
 }
 
+// MarkAsFinished handles POST /coffees/{id}/finish
+// Marks a coffee bag as finished, allowing Pokemon generation with 1+ brews
+func (h *CoffeeHandler) MarkAsFinished(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	coffee, err := h.service.MarkAsFinished(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Coffee not found")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, coffee)
+}
+
 // respondJSON is a helper function to send JSON responses
 // TODO: Implement this helper method
 // Requirements:

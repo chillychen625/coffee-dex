@@ -22,9 +22,8 @@ func main() {
 	mysqlDB := flag.String("mysql-db", "coffee_log", "MySQL database name")
 	
 	// Pokemon configuration flags
-	ollamaURL := flag.String("ollama-url", "http://localhost:11434", "Ollama base URL")
-	ollamaModel := flag.String("ollama-model", "qwen3:4b", "Ollama model name")
-	enableLLM := flag.Bool("enable-llm", true, "Enable LLM Pokemon mapping")
+	claudeModel := flag.String("claude-model", "haiku", "Claude model for Pokemon selection")
+	enableClaude := flag.Bool("enable-claude", true, "Enable Claude-powered Pokemon selection")
 	
 	flag.Parse()
 
@@ -89,25 +88,19 @@ func main() {
 
 	// Initialize Pokemon service
 	var pokemonService *service.PokemonService
-	var llmService *service.LLMService
+	var claudeService *service.ClaudeService
 
 	if pokemonStorage != nil {
 		// Create brew storage and service (requires MySQL)
 		brewStorage = storage.NewMySQLBrewStorage(db)
 		brewService = service.NewBrewService(brewStorage, store)
 
-		if *enableLLM {
-			llmService = service.NewLLMService(*ollamaURL, *ollamaModel)
-			// Test LLM connection
-			if err := llmService.TestConnection(); err != nil {
-				log.Printf("Warning: LLM service connection failed: %v", err)
-				llmService = nil
-			} else {
-				fmt.Println("LLM service connected successfully")
-			}
+		if *enableClaude {
+			claudeService = service.NewClaudeService(*claudeModel)
+			fmt.Printf("Claude Pokemon selection enabled (model: %s)\n", *claudeModel)
 		}
-		
-		pokemonService = service.NewPokemonService(pokemonStorage, coffeeService, brewService, llmService)
+
+		pokemonService = service.NewPokemonService(pokemonStorage, coffeeService, brewService, claudeService)
 
 		// Initialize Pokemon data
 		if err := pokemonService.InitializePokemonData(); err != nil {
@@ -147,7 +140,7 @@ func main() {
 	}
 
 	if brewService != nil {
-		brewHandler = handlers.NewBrewHandler(brewService, pokemonService)
+		brewHandler = handlers.NewBrewHandler(brewService, coffeeService, pokemonService)
 	}
 	
 	mux := http.NewServeMux()
@@ -174,6 +167,14 @@ func main() {
 	
 	// Brew routes (if brew service is available)
 	if brewHandler != nil {
+		mux.HandleFunc("/brews/recent-with-coffee", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				brewHandler.GetRecentBrewsWithCoffee(w, r)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
 		mux.HandleFunc("/brews/recent", func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodGet {
 				brewHandler.GetRecentBrews(w, r)
@@ -373,23 +374,34 @@ func main() {
 
 		coffeeID := parts[0]
 
-		// Handle sub-routes like /coffees/{id}/brews or /coffees/{id}/brew-progress
+		// Handle sub-routes like /coffees/{id}/brews, /coffees/{id}/brew-progress, /coffees/{id}/finish
 		if len(parts) >= 2 && parts[1] != "" {
-			if brewHandler == nil {
-				http.NotFound(w, r)
-				return
-			}
 			r.SetPathValue("coffee_id", coffeeID)
+			r.SetPathValue("id", coffeeID)
 			switch parts[1] {
 			case "brews":
+				if brewHandler == nil {
+					http.NotFound(w, r)
+					return
+				}
 				if r.Method == http.MethodGet {
 					brewHandler.GetBrewsForCoffee(w, r)
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}
 			case "brew-progress":
+				if brewHandler == nil {
+					http.NotFound(w, r)
+					return
+				}
 				if r.Method == http.MethodGet {
 					brewHandler.GetBrewProgress(w, r)
+				} else {
+					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				}
+			case "finish":
+				if r.Method == http.MethodPost {
+					coffeeHandler.MarkAsFinished(w, r)
 				} else {
 					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 				}

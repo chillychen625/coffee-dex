@@ -27,6 +27,7 @@ type CoffeePokemon struct {
 	CoffeeID          string          `json:"coffee_id"`
 	PokemonID         int             `json:"pokemon_id"`
 	PokemonName       string          `json:"pokemon_name"`
+	PokemonType       string          `json:"pokemon_type"` // Type of the Pokemon (e.g., "Fire", "Water/Flying")
 	Nickname          string          `json:"nickname"`
 	Level             int             `json:"level"`
 	MappingConfidence float64         `json:"mapping_confidence"`
@@ -42,22 +43,7 @@ type TraitMapping struct {
 	Reasoning  string `json:"reasoning"`
 }
 
-// LLMMappingRequest represents the request sent to LLM for Pokemon mapping
-type LLMMappingRequest struct {
-	CoffeeName    string        `json:"coffee_name"`
-	Origin        string        `json:"origin"`
-	TastingTraits TastingTraits `json:"tasting_traits"`
-	TastingNotes  []string      `json:"tasting_notes"`
-	Candidates    []Pokemon     `json:"candidates"`
-}
-
-// LLMMappingResponse represents the LLM response for Pokemon mapping
-type LLMMappingResponse struct {
-	SelectedPokemon string        `json:"selected_pokemon"`
-	Confidence      float64       `json:"confidence"`
-	Description     string        `json:"description"`
-	TraitMapping    []TraitMapping `json:"trait_mapping"`
-}
+// LLMMappingResponse is kept for backward compatibility but no longer used by the new Claude-based pipeline
 
 // PokemonMappingRequest represents a request to generate Pokemon for a coffee
 type PokemonMappingRequest struct {

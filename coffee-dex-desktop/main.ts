@@ -2,6 +2,14 @@ import { app, BrowserWindow, Menu, ipcMain } from "electron";
 import * as path from "path";
 import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs";
+import * as dotenv from "dotenv";
+
+// Load .env file from project root (two levels up from dist/)
+const envPath = path.join(__dirname, "../..", ".env");
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+  console.log("[Config] Loaded .env file");
+}
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
@@ -58,11 +66,18 @@ function stopBackend(): void {
 }
 
 function createWindow(): void {
+  const { screen } = require("electron");
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const workArea = primaryDisplay.workAreaSize;
+
   mainWindow = new BrowserWindow({
     width: 640,
-    height: 640,
+    height: workArea.height,
     minWidth: 640,
-    minHeight: 640,
+    maxWidth: 640,
+    minHeight: 400,
+    x: workArea.width - 640, // Pin to right edge
+    y: 0,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -199,4 +214,21 @@ ipcMain.on("close-window", () => {
   if (mainWindow) {
     mainWindow.close();
   }
+});
+
+ipcMain.on("toggle-always-on-top", () => {
+  if (mainWindow) {
+    const current = mainWindow.isAlwaysOnTop();
+    mainWindow.setAlwaysOnTop(!current);
+    mainWindow.webContents.send("always-on-top-changed", !current);
+  }
+});
+
+ipcMain.handle("get-always-on-top", () => {
+  return mainWindow?.isAlwaysOnTop() ?? false;
+});
+
+// Get API key from environment
+ipcMain.handle("get-anthropic-api-key", () => {
+  return process.env.ANTHROPIC_API_KEY || null;
 });

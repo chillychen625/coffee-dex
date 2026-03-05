@@ -1,4 +1,4 @@
-import { Coffee, CoffeePokemon, Pokemon, Brew, BrewProgress } from "../types/pokemon";
+import { Coffee, CoffeePokemon, Pokemon, Brew, BrewWithCoffee, BrewProgress } from "../types/pokemon";
 
 const API_BASE_URL = "http://localhost:8080";
 
@@ -71,6 +71,16 @@ export class CoffeeDexAPI {
     }
   }
 
+  async markCoffeeAsFinished(id: string): Promise<Coffee> {
+    const response = await fetch(`${this.baseUrl}/coffees/${id}/finish`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to mark coffee as finished: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
   // Brew endpoints
   async getBrews(): Promise<Brew[]> {
     const response = await fetch(`${this.baseUrl}/brews`);
@@ -84,6 +94,14 @@ export class CoffeeDexAPI {
     const response = await fetch(`${this.baseUrl}/brews/recent`);
     if (!response.ok) {
       throw new Error(`Failed to fetch recent brews: ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  async getRecentBrewsWithCoffee(): Promise<BrewWithCoffee[]> {
+    const response = await fetch(`${this.baseUrl}/brews/recent-with-coffee`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch recent brews with coffee: ${response.statusText}`);
     }
     return response.json();
   }

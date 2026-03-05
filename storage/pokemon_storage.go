@@ -255,36 +255,36 @@ func (m *MySQLPokemonStorage) GetCoffeePokemon(coffeeID string) (*models.CoffeeP
 	query := `
 		SELECT cp.id, cp.coffee_id, cp.pokemon_id, cp.nickname, cp.level,
 		       cp.mapping_confidence, cp.llm_description, cp.created_at,
-		       p.name, cp.trait_mapping
+		       p.name, p.type, cp.trait_mapping
 		FROM coffee_pokemon cp
 		JOIN pokemons p ON cp.pokemon_id = p.id
 		WHERE cp.coffee_id = ?
 	`
-	
+
 	row := m.db.QueryRow(query, coffeeID)
-	
+
 	var mapping models.CoffeePokemon
 	var traitMappingJSON []byte
-	
+
 	err := row.Scan(
 		&mapping.ID, &mapping.CoffeeID, &mapping.PokemonID,
 		&mapping.Nickname, &mapping.Level,
 		&mapping.MappingConfidence, &mapping.LLMDescription,
-		&mapping.CreatedAt, &mapping.PokemonName,
+		&mapping.CreatedAt, &mapping.PokemonName, &mapping.PokemonType,
 		&traitMappingJSON,
 	)
-	
+
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("Pokemon mapping not found for coffee")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get coffee Pokemon: %w", err)
 	}
-	
+
 	if err := json.Unmarshal(traitMappingJSON, &mapping.TraitMapping); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal trait mapping: %w", err)
 	}
-	
+
 	return &mapping, nil
 }
 
@@ -293,43 +293,43 @@ func (m *MySQLPokemonStorage) GetAllCoffeePokemon() ([]models.CoffeePokemon, err
 	query := `
 		SELECT cp.id, cp.coffee_id, cp.pokemon_id, cp.nickname, cp.level,
 		       cp.mapping_confidence, cp.llm_description, cp.created_at,
-		       p.name, cp.trait_mapping
+		       p.name, p.type, cp.trait_mapping
 		FROM coffee_pokemon cp
 		JOIN pokemons p ON cp.pokemon_id = p.id
 		ORDER BY cp.created_at DESC
 	`
-	
+
 	rows, err := m.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query coffee Pokemon: %w", err)
 	}
 	defer rows.Close()
-	
+
 	var mappings []models.CoffeePokemon
-	
+
 	for rows.Next() {
 		var mapping models.CoffeePokemon
 		var traitMappingJSON []byte
-		
+
 		err := rows.Scan(
 			&mapping.ID, &mapping.CoffeeID, &mapping.PokemonID,
 			&mapping.Nickname, &mapping.Level,
 			&mapping.MappingConfidence, &mapping.LLMDescription,
-			&mapping.CreatedAt, &mapping.PokemonName,
+			&mapping.CreatedAt, &mapping.PokemonName, &mapping.PokemonType,
 			&traitMappingJSON,
 		)
-		
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan coffee Pokemon: %w", err)
 		}
-		
+
 		if err := json.Unmarshal(traitMappingJSON, &mapping.TraitMapping); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal trait mapping: %w", err)
 		}
-		
+
 		mappings = append(mappings, mapping)
 	}
-	
+
 	return mappings, nil
 }
 

@@ -16,6 +16,7 @@ type Brew struct {
 	Dripper       string        `json:"dripper"`
 	EndTime       DrawDownTime  `json:"end_time"`
 	CreatedAt     time.Time     `json:"created_at"`
+	DaysOffRoast  int           `json:"days_off_roast"` // Calculated: days between roast date and brew date (-1 if no roast date)
 }
 
 // BrewWithCoffee includes the coffee information along with the brew
@@ -41,6 +42,7 @@ type BrewProgress struct {
 	Required           int  `json:"required"`
 	CanGeneratePokemon bool `json:"can_generate_pokemon"`
 	HasPokemon         bool `json:"has_pokemon"`
+	IsFinished         bool `json:"is_finished"`
 }
 
 // RequiredBrewsForPokemon is the number of brews needed to unlock Pokemon generation
@@ -70,42 +72,43 @@ func (b *Brew) Validate() error {
 	return nil
 }
 
-// AverageTraits computes the average TastingTraits from a slice of brews
+// averageTrait computes the average of a single trait across brews, skipping -1 (not scored)
+func averageTrait(brews []Brew, getter func(TastingTraits) int) int {
+	sum, count := 0, 0
+	for _, b := range brews {
+		v := getter(b.TastingTraits)
+		if v >= 0 {
+			sum += v
+			count++
+		}
+	}
+	if count == 0 {
+		return -1
+	}
+	return sum / count
+}
+
+// AverageTraits computes the average TastingTraits from a slice of brews.
+// Traits with value -1 (not scored) are excluded from the average.
+// If no brews scored a given trait, the average is -1.
 func AverageTraits(brews []Brew) TastingTraits {
 	if len(brews) == 0 {
 		return TastingTraits{}
 	}
 
-	var sum TastingTraits
-	for _, b := range brews {
-		sum.BerryIntensity += b.TastingTraits.BerryIntensity
-		sum.StonefruitIntensity += b.TastingTraits.StonefruitIntensity
-		sum.RoastIntensity += b.TastingTraits.RoastIntensity
-		sum.CitrusFruitsIntensity += b.TastingTraits.CitrusFruitsIntensity
-		sum.Bitterness += b.TastingTraits.Bitterness
-		sum.Florality += b.TastingTraits.Florality
-		sum.Spice += b.TastingTraits.Spice
-		sum.Sweetness += b.TastingTraits.Sweetness
-		sum.AromaticIntensity += b.TastingTraits.AromaticIntensity
-		sum.Savory += b.TastingTraits.Savory
-		sum.Body += b.TastingTraits.Body
-		sum.Cleanliness += b.TastingTraits.Cleanliness
-	}
-
-	count := len(brews)
 	return TastingTraits{
-		BerryIntensity:        sum.BerryIntensity / count,
-		StonefruitIntensity:   sum.StonefruitIntensity / count,
-		RoastIntensity:        sum.RoastIntensity / count,
-		CitrusFruitsIntensity: sum.CitrusFruitsIntensity / count,
-		Bitterness:            sum.Bitterness / count,
-		Florality:             sum.Florality / count,
-		Spice:                 sum.Spice / count,
-		Sweetness:             sum.Sweetness / count,
-		AromaticIntensity:     sum.AromaticIntensity / count,
-		Savory:                sum.Savory / count,
-		Body:                  sum.Body / count,
-		Cleanliness:           sum.Cleanliness / count,
+		BerryIntensity:        averageTrait(brews, func(t TastingTraits) int { return t.BerryIntensity }),
+		StonefruitIntensity:   averageTrait(brews, func(t TastingTraits) int { return t.StonefruitIntensity }),
+		RoastIntensity:        averageTrait(brews, func(t TastingTraits) int { return t.RoastIntensity }),
+		CitrusFruitsIntensity: averageTrait(brews, func(t TastingTraits) int { return t.CitrusFruitsIntensity }),
+		Bitterness:            averageTrait(brews, func(t TastingTraits) int { return t.Bitterness }),
+		Florality:             averageTrait(brews, func(t TastingTraits) int { return t.Florality }),
+		Spice:                 averageTrait(brews, func(t TastingTraits) int { return t.Spice }),
+		Sweetness:             averageTrait(brews, func(t TastingTraits) int { return t.Sweetness }),
+		AromaticIntensity:     averageTrait(brews, func(t TastingTraits) int { return t.AromaticIntensity }),
+		Savory:                averageTrait(brews, func(t TastingTraits) int { return t.Savory }),
+		Body:                  averageTrait(brews, func(t TastingTraits) int { return t.Body }),
+		Cleanliness:           averageTrait(brews, func(t TastingTraits) int { return t.Cleanliness }),
 	}
 }
 

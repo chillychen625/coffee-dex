@@ -11,13 +11,15 @@ import (
 // BrewHandler handles HTTP requests for brew operations
 type BrewHandler struct {
 	brewService    *service.BrewService
+	coffeeService  *service.CoffeeService
 	pokemonService *service.PokemonService
 }
 
 // NewBrewHandler creates a new brew handler
-func NewBrewHandler(brewService *service.BrewService, pokemonService *service.PokemonService) *BrewHandler {
+func NewBrewHandler(brewService *service.BrewService, coffeeService *service.CoffeeService, pokemonService *service.PokemonService) *BrewHandler {
 	return &BrewHandler{
 		brewService:    brewService,
+		coffeeService:  coffeeService,
 		pokemonService: pokemonService,
 	}
 }
@@ -63,6 +65,11 @@ func (h *BrewHandler) ListBrews(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ensure we return an empty array, not null
+	if brews == nil {
+		brews = []models.Brew{}
+	}
+
 	respondJSON(w, http.StatusOK, brews)
 }
 
@@ -73,6 +80,28 @@ func (h *BrewHandler) GetRecentBrews(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error getting recent brews: %v", err)
 		respondError(w, http.StatusInternalServerError, "Failed to get recent brews")
 		return
+	}
+
+	// Ensure we return an empty array, not null
+	if brews == nil {
+		brews = []models.Brew{}
+	}
+
+	respondJSON(w, http.StatusOK, brews)
+}
+
+// GetRecentBrewsWithCoffee handles GET /brews/recent-with-coffee
+func (h *BrewHandler) GetRecentBrewsWithCoffee(w http.ResponseWriter, r *http.Request) {
+	brews, err := h.brewService.GetRecentBrewsWithCoffee(10)
+	if err != nil {
+		log.Printf("Error getting recent brews with coffee: %v", err)
+		respondError(w, http.StatusInternalServerError, "Failed to get recent brews with coffee")
+		return
+	}
+
+	// Ensure we return an empty array, not null
+	if brews == nil {
+		brews = []models.BrewWithCoffee{}
 	}
 
 	respondJSON(w, http.StatusOK, brews)
@@ -89,6 +118,11 @@ func (h *BrewHandler) GetBrewsForCoffee(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Ensure we return an empty array, not null
+	if brews == nil {
+		brews = []models.Brew{}
+	}
+
 	respondJSON(w, http.StatusOK, brews)
 }
 
@@ -96,13 +130,22 @@ func (h *BrewHandler) GetBrewsForCoffee(w http.ResponseWriter, r *http.Request) 
 func (h *BrewHandler) GetBrewProgress(w http.ResponseWriter, r *http.Request) {
 	coffeeID := r.PathValue("coffee_id")
 
+	// Get coffee to check if finished
+	isFinished := false
+	if h.coffeeService != nil {
+		coffee, err := h.coffeeService.GetCoffee(coffeeID)
+		if err == nil {
+			isFinished = coffee.IsFinished
+		}
+	}
+
 	// Check if coffee has a Pokemon already
 	hasPokemon := false
 	if h.pokemonService != nil {
 		hasPokemon = h.pokemonService.HasPokemon(coffeeID)
 	}
 
-	progress, err := h.brewService.GetBrewProgress(coffeeID, hasPokemon)
+	progress, err := h.brewService.GetBrewProgress(coffeeID, hasPokemon, isFinished)
 	if err != nil {
 		log.Printf("Error getting brew progress for coffee %s: %v", coffeeID, err)
 		respondError(w, http.StatusInternalServerError, "Failed to get brew progress")

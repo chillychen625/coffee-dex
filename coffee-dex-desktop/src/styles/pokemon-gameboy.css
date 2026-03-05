@@ -474,26 +474,30 @@ body {
   flex: 1;
 }
 
-/* Screen/Container */
+/* Screen/Container - widget column layout */
 .pokemon-screen {
   background: var(--gb-lightest);
-  min-height: calc(100vh - 32px);
   height: calc(100vh - 32px);
   padding: var(--spacing-md);
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.pokemon-screen.centered {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-/* Pokemon frame adjustments for square layout */
+/* Deprecated: centered is now a no-op, content flows top-down */
+.pokemon-screen.centered {
+  /* intentionally empty - keeping class for compat */
+}
+
+/* Pokemon frame fills the column and scrolls internally */
 .pokemon-frame {
   max-width: 100%;
   width: 100%;
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Dialogue Box Animation */
@@ -623,4 +627,26 @@ body {
   --pokemon-blue: #ccaa00;
   --pokemon-red: #aa8800;
   --button-active: #d8b850;
+}
+
+/* Pokemon Encounter Animations */
+@keyframes encounter-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes encounter-text {
+  0% { opacity: 0; transform: translateY(-10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes encounter-slide-in {
+  0% { opacity: 0; transform: translateX(100px) scale(0.5); }
+  60% { opacity: 1; transform: translateX(-10px) scale(1.1); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes encounter-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
 }

@@ -53,6 +53,8 @@ func (m *MySQLStorage) initTables() error {
 			variety VARCHAR(255),
 			roast_level VARCHAR(50),
 			processing_method VARCHAR(100),
+			roast_date DATE,
+			is_finished BOOLEAN DEFAULT FALSE,
 			created_at DATETIME,
 			updated_at DATETIME
 		)
@@ -61,6 +63,10 @@ func (m *MySQLStorage) initTables() error {
 	if _, err := m.db.Exec(coffeesQuery); err != nil {
 		return fmt.Errorf("failed to create coffees table: %w", err)
 	}
+
+	// Add columns if they don't exist (for existing databases)
+	m.db.Exec("ALTER TABLE coffees ADD COLUMN roast_date DATE")
+	m.db.Exec("ALTER TABLE coffees ADD COLUMN is_finished BOOLEAN DEFAULT FALSE")
 
 	// Create brews table
 	brewsQuery := `
@@ -98,14 +104,20 @@ func (m *MySQLStorage) Save(coffee models.Coffee) error {
 	query := `
 		INSERT INTO coffees (
 			id, name, origin, roaster, variety, roast_level, processing_method,
-			created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			roast_date, is_finished, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
+
+	// Convert DateOnly to time.Time for SQL driver
+	var roastDate interface{}
+	if coffee.RoastDate != nil && !coffee.RoastDate.IsZero() {
+		roastDate = coffee.RoastDate.Time()
+	}
 
 	_, err := m.db.Exec(
 		query,
 		coffee.ID, coffee.Name, coffee.Origin, coffee.Roaster, coffee.Variety,
-		coffee.RoastLevel, coffee.ProcessingMethod,
+		coffee.RoastLevel, coffee.ProcessingMethod, roastDate, coffee.IsFinished,
 		coffee.CreatedAt, coffee.UpdatedAt,
 	)
 
@@ -120,17 +132,19 @@ func (m *MySQLStorage) Save(coffee models.Coffee) error {
 func (m *MySQLStorage) GetByID(id string) (models.Coffee, error) {
 	query := `
 		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
-		       created_at, updated_at
+		       roast_date, is_finished, created_at, updated_at
 		FROM coffees WHERE id = ?
 	`
 
 	row := m.db.QueryRow(query, id)
 
 	var coffee models.Coffee
+	var roastDate sql.NullTime
+	var isFinished sql.NullBool
 
 	err := row.Scan(
 		&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster, &coffee.Variety,
-		&coffee.RoastLevel, &coffee.ProcessingMethod,
+		&coffee.RoastLevel, &coffee.ProcessingMethod, &roastDate, &isFinished,
 		&coffee.CreatedAt, &coffee.UpdatedAt,
 	)
 
@@ -141,6 +155,17 @@ func (m *MySQLStorage) GetByID(id string) (models.Coffee, error) {
 		return models.Coffee{}, fmt.Errorf("failed to get coffee: %w", err)
 	}
 
+	// Convert sql.NullTime to *DateOnly
+	if roastDate.Valid {
+		d := models.DateOnly(roastDate.Time)
+		coffee.RoastDate = &d
+	}
+
+	// Convert sql.NullBool
+	if isFinished.Valid {
+		coffee.IsFinished = isFinished.Bool
+	}
+
 	return coffee, nil
 }
 
@@ -148,7 +173,7 @@ func (m *MySQLStorage) GetByID(id string) (models.Coffee, error) {
 func (m *MySQLStorage) GetAll() ([]models.Coffee, error) {
 	query := `
 		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
-		       created_at, updated_at
+		       roast_date, is_finished, created_at, updated_at
 		FROM coffees
 		ORDER BY created_at DESC
 	`
@@ -163,15 +188,28 @@ func (m *MySQLStorage) GetAll() ([]models.Coffee, error) {
 
 	for rows.Next() {
 		var coffee models.Coffee
+		var roastDate sql.NullTime
+		var isFinished sql.NullBool
 
 		err := rows.Scan(
 			&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster, &coffee.Variety,
-			&coffee.RoastLevel, &coffee.ProcessingMethod,
+			&coffee.RoastLevel, &coffee.ProcessingMethod, &roastDate, &isFinished,
 			&coffee.CreatedAt, &coffee.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan coffee: %w", err)
+		}
+
+		// Convert sql.NullTime to *DateOnly
+		if roastDate.Valid {
+			d := models.DateOnly(roastDate.Time)
+			coffee.RoastDate = &d
+		}
+
+		// Convert sql.NullBool
+		if isFinished.Valid {
+			coffee.IsFinished = isFinished.Bool
 		}
 
 		coffees = append(coffees, coffee)
@@ -188,7 +226,7 @@ func (m *MySQLStorage) GetAll() ([]models.Coffee, error) {
 func (m *MySQLStorage) GetRecent(limit int) ([]models.Coffee, error) {
 	query := `
 		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
-		       created_at, updated_at
+		       roast_date, is_finished, created_at, updated_at
 		FROM coffees
 		ORDER BY created_at DESC
 		LIMIT ?
@@ -204,15 +242,28 @@ func (m *MySQLStorage) GetRecent(limit int) ([]models.Coffee, error) {
 
 	for rows.Next() {
 		var coffee models.Coffee
+		var roastDate sql.NullTime
+		var isFinished sql.NullBool
 
 		err := rows.Scan(
 			&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster, &coffee.Variety,
-			&coffee.RoastLevel, &coffee.ProcessingMethod,
+			&coffee.RoastLevel, &coffee.ProcessingMethod, &roastDate, &isFinished,
 			&coffee.CreatedAt, &coffee.UpdatedAt,
 		)
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan coffee: %w", err)
+		}
+
+		// Convert sql.NullTime to *DateOnly
+		if roastDate.Valid {
+			d := models.DateOnly(roastDate.Time)
+			coffee.RoastDate = &d
+		}
+
+		// Convert sql.NullBool
+		if isFinished.Valid {
+			coffee.IsFinished = isFinished.Bool
 		}
 
 		coffees = append(coffees, coffee)
@@ -230,14 +281,20 @@ func (m *MySQLStorage) Update(id string, coffee models.Coffee) error {
 	query := `
 		UPDATE coffees SET
 			name=?, origin=?, roaster=?, variety=?, roast_level=?, processing_method=?,
-			updated_at=?
+			roast_date=?, is_finished=?, updated_at=?
 		WHERE id=?
 	`
+
+	// Convert DateOnly to time.Time for SQL driver
+	var roastDate interface{}
+	if coffee.RoastDate != nil && !coffee.RoastDate.IsZero() {
+		roastDate = coffee.RoastDate.Time()
+	}
 
 	result, err := m.db.Exec(
 		query,
 		coffee.Name, coffee.Origin, coffee.Roaster, coffee.Variety,
-		coffee.RoastLevel, coffee.ProcessingMethod,
+		coffee.RoastLevel, coffee.ProcessingMethod, roastDate, coffee.IsFinished,
 		coffee.UpdatedAt, id,
 	)
 

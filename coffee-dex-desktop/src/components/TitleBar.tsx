@@ -1,6 +1,13 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 
 const TitleBar: React.FC = () => {
+  const [pinned, setPinned] = useState(false);
+
+  useEffect(() => {
+    (window as any).electron?.getAlwaysOnTop().then((v: boolean) => setPinned(v));
+    (window as any).electron?.onAlwaysOnTopChanged((v: boolean) => setPinned(v));
+  }, []);
+
   return (
     <div
       style={
@@ -44,6 +51,27 @@ const TitleBar: React.FC = () => {
           } as React.CSSProperties
         }
       >
+        <button
+          onClick={() => {
+            (window as any).electron?.toggleAlwaysOnTop();
+          }}
+          title={pinned ? "Unpin from top" : "Pin on top"}
+          style={{
+            width: "24px",
+            height: "24px",
+            border: `2px solid ${pinned ? "#f8d030" : "#9bbc0f"}`,
+            background: pinned ? "#332800" : "#181010",
+            color: pinned ? "#f8d030" : "#9bbc0f",
+            cursor: "pointer",
+            fontSize: "12px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 0,
+          }}
+        >
+          {pinned ? "P" : "p"}
+        </button>
         <button
           onClick={() => {
             (window as any).electron?.minimizeWindow();

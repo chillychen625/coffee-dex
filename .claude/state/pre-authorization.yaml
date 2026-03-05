@@ -1,0 +1,12 @@
+active: true
+authorized_at: "2026-02-25T00:00:00"
+scope:
+  goal_ids:
+    - goal-6
+    - goal-7
+  max_blast_radius: 100
+authorization_level: full
+limits:
+  max_total_cycles: 50
+  max_runtime_hours: 12
+  max_consecutive_goal_failures: 2
