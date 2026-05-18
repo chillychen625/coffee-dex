@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"go-coffee-log/models"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -43,11 +44,19 @@ func (s *ClaudeService) SelectPokemon(
 ) (*ClaudeResponse, error) {
 	prompt := s.buildPrompt(coffee, traits, combinedNotes, typeHints, availablePokemon)
 
-	log.Printf("Calling Claude CLI for Pokemon selection (coffee: %s, %d available Pokemon)", coffee.Name, len(availablePokemon))
+	log.Printf("Calling Claude CLI for Pokemon selection (coffee: %s, %d available Pokemon, model: %s)", coffee.Name, len(availablePokemon), s.model)
 
 	// Build the command: pipe prompt via stdin to handle long prompts
 	cmd := exec.Command("claude", "-p", "--output-format", "json", "--model", s.model, "--no-session-persistence")
 	cmd.Stdin = bytes.NewBufferString(prompt)
+
+	// Route Claude CLI to local Ollama via the Anthropic-compatible API.
+	// See https://docs.ollama.com/integrations/claude-code
+	cmd.Env = append(os.Environ(),
+		"ANTHROPIC_AUTH_TOKEN=ollama",
+		"ANTHROPIC_API_KEY=",
+		"ANTHROPIC_BASE_URL=http://localhost:11434",
+	)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -62,7 +71,7 @@ func (s *ClaudeService) SelectPokemon(
 	select {
 	case err := <-done:
 		if err != nil {
-			return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s)", err, stderr.String())
+			return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s, stdout: %s)", err, stderr.String(), stdout.String())
 		}
 	case <-time.After(s.timeout):
 		if cmd.Process != nil {
@@ -76,11 +85,16 @@ func (s *ClaudeService) SelectPokemon(
 	output := stdout.Bytes()
 
 	var cliResponse struct {
-		Result string `json:"result"`
+		Result  string `json:"result"`
+		IsError bool   `json:"is_error"`
 	}
 	if err := json.Unmarshal(output, &cliResponse); err != nil {
 		// Maybe it returned the JSON directly
 		return s.parseResponse(output, availablePokemon)
+	}
+
+	if cliResponse.IsError {
+		return nil, fmt.Errorf("claude CLI returned an error result: %s", cliResponse.Result)
 	}
 
 	if cliResponse.Result != "" {

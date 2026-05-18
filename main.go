@@ -22,7 +22,7 @@ func main() {
 	mysqlDB := flag.String("mysql-db", "coffee_log", "MySQL database name")
 	
 	// Pokemon configuration flags
-	claudeModel := flag.String("claude-model", "haiku", "Claude model for Pokemon selection")
+	claudeModel := flag.String("claude-model", "ministral-3:8b", "Model for Pokemon selection (routed through local Ollama)")
 	enableClaude := flag.Bool("enable-claude", true, "Enable Claude-powered Pokemon selection")
 	
 	flag.Parse()

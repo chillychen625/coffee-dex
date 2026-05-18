@@ -5,6 +5,7 @@ import (
 	"go-coffee-log/models"
 	"go-coffee-log/storage"
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,9 +57,6 @@ func (s *PokemonService) MapCoffeeToPokemon(coffeeID string) (*models.CoffeePoke
 	}
 	if !canGenerate {
 		count, _ := s.brewService.GetBrewCount(coffeeID)
-		if coffee.IsFinished {
-			return nil, fmt.Errorf("need at least 1 brew to generate Pokemon for finished coffee (current: %d)", count)
-		}
 		return nil, fmt.Errorf("need %d more brews to generate Pokemon (current: %d, required: %d)",
 			models.RequiredBrewsForPokemon-count, count, models.RequiredBrewsForPokemon)
 	}
@@ -177,18 +175,24 @@ func (s *PokemonService) fallbackSelect(traits models.TastingTraits, typeScores 
 		}
 	}
 
-	// Try to find an available Pokemon of that type
+	// Collect all available Pokemon of the best type, then pick one at random
+	matches := make([]int, 0)
 	for i := range available {
 		if containsType(available[i].Type, bestType) {
-			desc := fmt.Sprintf("A %s-type Pokemon matched to this coffee's flavor profile. %s's characteristics align with the %s notes in your brews.",
-				available[i].Type, available[i].Name, bestType)
-			return &available[i], bestScore * 0.8, desc
+			matches = append(matches, i)
 		}
 	}
+	if len(matches) > 0 {
+		pick := matches[rand.Intn(len(matches))]
+		desc := fmt.Sprintf("A %s-type Pokemon matched to this coffee's flavor profile. %s's characteristics align with the %s notes in your brews.",
+			available[pick].Type, available[pick].Name, bestType)
+		return &available[pick], bestScore * 0.8, desc
+	}
 
-	// Just return the first available Pokemon
+	// No type match — pick a random available Pokemon (avoids pokedex creep)
 	if len(available) > 0 {
-		return &available[0], 0.5, fmt.Sprintf("%s was matched to this coffee's unique flavor profile.", available[0].Name)
+		pick := rand.Intn(len(available))
+		return &available[pick], 0.5, fmt.Sprintf("%s was matched to this coffee's unique flavor profile.", available[pick].Name)
 	}
 
 	// Should never reach here since we check upstream

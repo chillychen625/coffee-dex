@@ -1569,8 +1569,8 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* Mark as Finished button - only show if not finished and has at least 1 brew */}
-            {!coffee.is_finished && brews.length > 0 && !progress.has_pokemon && (
+            {/* Mark as Finished button - show for any unfinished coffee without Pokemon */}
+            {!coffee.is_finished && !progress.has_pokemon && (
               <button
                 className="pokemon-button"
                 style={{
@@ -1580,9 +1580,11 @@ const App: React.FC = () => {
                   opacity: 0.9,
                 }}
                 onClick={handleMarkAsFinished}
-                title="Mark this bag as finished to generate a Pokemon with fewer brews"
+                title="Mark this bag as finished and generate a Pokemon"
               >
-                Bag Finished? Generate Pokemon from {brews.length} brew{brews.length !== 1 ? "s" : ""}
+                {brews.length > 0
+                  ? `Bag Finished? Generate Pokemon from ${brews.length} brew${brews.length !== 1 ? "s" : ""}`
+                  : "Close Bag & Generate Pokemon"}
               </button>
             )}
 

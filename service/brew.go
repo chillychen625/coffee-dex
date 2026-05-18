@@ -120,9 +120,9 @@ func (s *BrewService) CanGeneratePokemon(coffeeID string, isFinished bool) (bool
 	if err != nil {
 		return false, err
 	}
-	// Finished coffees only need 1 brew, others need the full amount
+	// Finished coffees can always generate Pokemon (even with 0 brews)
 	if isFinished {
-		return count >= 1, nil
+		return true, nil
 	}
 	return count >= models.RequiredBrewsForPokemon, nil
 }
@@ -134,10 +134,10 @@ func (s *BrewService) GetBrewProgress(coffeeID string, hasPokemon bool, isFinish
 		return models.BrewProgress{}, err
 	}
 
-	// Finished coffees only need 1 brew to generate Pokemon
+	// Finished coffees can always generate Pokemon (even with 0 brews)
 	var canGenerate bool
 	if isFinished {
-		canGenerate = count >= 1 && !hasPokemon
+		canGenerate = !hasPokemon
 	} else {
 		canGenerate = count >= models.RequiredBrewsForPokemon && !hasPokemon
 	}
@@ -159,7 +159,11 @@ func (s *BrewService) GetAggregatedData(coffeeID string) (*models.AggregatedBrew
 	}
 
 	if len(brews) == 0 {
-		return nil, fmt.Errorf("no brews found for coffee %s", coffeeID)
+		// Return empty/default aggregated data for coffees with no brews
+		return &models.AggregatedBrewData{
+			CoffeeID:  coffeeID,
+			BrewCount: 0,
+		}, nil
 	}
 
 	return &models.AggregatedBrewData{
