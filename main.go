@@ -1,469 +1,62 @@
 package main
 
 import (
-	"database/sql"
 	"flag"
 	"fmt"
-	"go-coffee-log/handlers"
+	"go-coffee-log/game"
 	"go-coffee-log/service"
 	"go-coffee-log/storage"
 	"log"
-	"net/http"
-	"os"
-	"strings"
 )
 
 func main() {
-	// Command-line flags for storage configuration
-	storageType := flag.String("storage", "memory", "Storage type: memory or mysql")
-	mysqlHost := flag.String("mysql-host", "localhost:3306", "MySQL host")
-	mysqlUser := flag.String("mysql-user", "root", "MySQL user")
-	mysqlPassword := flag.String("mysql-password", "", "MySQL password")
-	mysqlDB := flag.String("mysql-db", "coffee_log", "MySQL database name")
-	
-	// Pokemon configuration flags
-	claudeModel := flag.String("claude-model", "ministral-3:8b", "Model for Pokemon selection (routed through local Ollama)")
-	enableClaude := flag.Bool("enable-claude", true, "Enable Claude-powered Pokemon selection")
-	
+	dbPath := flag.String("db", "./coffee-dex.db", "SQLite database file path")
+	claudeModel := flag.String("claude-model", "ministral-3:8b", "Model for Pokemon selection (via local Ollama)")
+	enableClaude := flag.Bool("enable-claude", true, "Enable LLM-powered Pokemon selection")
 	flag.Parse()
 
-	// Initialize storage based on flag
-	var store storage.CoffeeStorage
-	var pokemonStorage storage.PokemonStorage
-	var db *sql.DB
-	var err error
-
-	switch *storageType {
-	case "mysql":
-		store, err = storage.NewMySQLStorage(*mysqlHost, *mysqlUser, *mysqlPassword, *mysqlDB)
-		if err != nil {
-			log.Fatalf("Failed to initialize MySQL storage: %v", err)
-		}
-		fmt.Println("Using MySQL storage")
-		
-		// Get the underlying database connection for Pokemon storage
-		if mysqlStore, ok := store.(*storage.MySQLStorage); ok {
-			// Access the private db field - we'll need to modify MySQLStorage to expose this
-			// For now, we'll create a new connection
-			log.Printf("INFO: Opening MySQL connection for Pokemon/Brewer storage")
-			db, err = openMySQLConnection(*mysqlHost, *mysqlUser, *mysqlPassword, *mysqlDB)
-			if err != nil {
-				log.Fatalf("Failed to create Pokemon DB connection: %v", err)
-			}
-			
-			// Test the connection
-			if err := db.Ping(); err != nil {
-				log.Fatalf("Failed to ping Pokemon DB connection: %v", err)
-			}
-			log.Printf("INFO: MySQL connection for Pokemon/Brewer storage successful")
-			
-			pokemonStorage = storage.NewMySQLPokemonStorage(db)
-			
-			defer mysqlStore.Close()
-			defer db.Close()
-		}
-	case "memory":
-		store = storage.NewMemoryStorage()
-		fmt.Println("Using in-memory storage")
-		// Pokemon storage not available with memory storage
-		pokemonStorage = nil
-	default:
-		fmt.Fprintf(os.Stderr, "Invalid storage type: %s. Use 'memory' or 'mysql'\n", *storageType)
-		os.Exit(1)
+	// Open SQLite database (creates file if it doesn't exist)
+	sqliteDB, err := storage.NewSQLiteDB(*dbPath)
+	if err != nil {
+		log.Fatalf("Failed to open database %s: %v", *dbPath, err)
 	}
+	defer sqliteDB.Close()
+	db := sqliteDB.DB()
 
-	// Initialize services
-	coffeeService := service.NewCoffeeService(store)
+	// Storage layer
+	coffeeStore := storage.NewSQLiteCoffeeStorage(db)
+	brewStore := storage.NewSQLiteBrewStorage(db)
+	brewerStore := storage.NewSQLiteBrewerStorage(db)
+	pokemonStore := storage.NewSQLitePokemonStorage(db)
 
-	// Initialize statistics service
-	var statisticsService *service.StatisticsService
+	// Service layer
+	coffeeService := service.NewCoffeeService(coffeeStore)
+	brewService := service.NewBrewService(brewStore, coffeeStore)
 
-	// Initialize brew service
-	var brewService *service.BrewService
-	var brewStorage storage.BrewStorage
-
-	// Initialize brewer service
-	var brewerService *service.BrewerService
-	var brewerStorage storage.BrewerStorage
-
-	// Initialize Pokemon service
-	var pokemonService *service.PokemonService
 	var claudeService *service.ClaudeService
-
-	if pokemonStorage != nil {
-		// Create brew storage and service (requires MySQL)
-		brewStorage = storage.NewMySQLBrewStorage(db)
-		brewService = service.NewBrewService(brewStorage, store)
-
-		if *enableClaude {
-			claudeService = service.NewClaudeService(*claudeModel)
-			fmt.Printf("Claude Pokemon selection enabled (model: %s)\n", *claudeModel)
-		}
-
-		pokemonService = service.NewPokemonService(pokemonStorage, coffeeService, brewService, claudeService)
-
-		// Initialize Pokemon data
-		if err := pokemonService.InitializePokemonData(); err != nil {
-			log.Printf("Failed to initialize Pokemon data: %v", err)
-		}
-
-		// Initialize statistics service (requires Pokemon and Brew storage)
-		statisticsService = service.NewStatisticsService(store, brewStorage, pokemonStorage)
-		
-		// Initialize brewer service (requires MySQL storage)
-		log.Printf("INFO: Initializing brewer storage with MySQL connection")
-		brewerStorage = storage.NewMySQLBrewerStorage(db, store)
-		brewerService = service.NewBrewerService(brewerStorage)
-		log.Printf("INFO: Brewer service initialized successfully")
-	} else {
-		fmt.Println("Pokemon features disabled (requires MySQL storage)")
-	}
-	
-	// Initialize handlers
-	coffeeHandler := handlers.NewCoffeeHandler(coffeeService)
-
-	var pokemonHandler *handlers.PokemonHandler
-	var statisticsHandler *handlers.StatisticsHandler
-	var brewerHandler *handlers.BrewerHandler
-	var brewHandler *handlers.BrewHandler
-
-	if pokemonService != nil {
-		pokemonHandler = handlers.NewPokemonHandler(pokemonService, coffeeService)
+	if *enableClaude {
+		claudeService = service.NewClaudeService(*claudeModel)
+		fmt.Printf("LLM Pokemon selection enabled (model: %s)\n", *claudeModel)
 	}
 
-	if statisticsService != nil {
-		statisticsHandler = handlers.NewStatisticsHandler(statisticsService)
+	pokemonService := service.NewPokemonService(pokemonStore, coffeeService, brewService, claudeService)
+	if err := pokemonService.InitializePokemonData(); err != nil {
+		log.Printf("Warning: failed to initialize Pokemon data: %v", err)
 	}
 
-	if brewerService != nil {
-		brewerHandler = handlers.NewBrewerHandler(brewerService)
+	brewerService := service.NewBrewerService(brewerStore)
+	statisticsService := service.NewStatisticsService(coffeeStore, brewStore, pokemonStore)
+
+	// Launch game
+	svc := &game.Services{
+		Coffee:     coffeeService,
+		Brew:       brewService,
+		Brewer:     brewerService,
+		Pokemon:    pokemonService,
+		Statistics: statisticsService,
 	}
 
-	if brewService != nil {
-		brewHandler = handlers.NewBrewHandler(brewService, coffeeService, pokemonService)
+	if err := game.Run(svc); err != nil {
+		log.Fatalf("Game error: %v", err)
 	}
-	
-	mux := http.NewServeMux()
-
-	// Coffee routes
-	mux.HandleFunc("/coffees/recent", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			coffeeHandler.GetRecentCoffees(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	
-	mux.HandleFunc("/coffees", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost:
-			coffeeHandler.CreateCoffee(w, r)
-		case http.MethodGet:
-			coffeeHandler.ListCoffees(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	
-	// Brew routes (if brew service is available)
-	if brewHandler != nil {
-		mux.HandleFunc("/brews/recent-with-coffee", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodGet {
-				brewHandler.GetRecentBrewsWithCoffee(w, r)
-			} else {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-
-		mux.HandleFunc("/brews/recent", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodGet {
-				brewHandler.GetRecentBrews(w, r)
-			} else {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-
-		mux.HandleFunc("/brews/", func(w http.ResponseWriter, r *http.Request) {
-			// Extract brew_id from path: /brews/{id}
-			path := strings.TrimPrefix(r.URL.Path, "/brews/")
-			if path == "" {
-				http.NotFound(w, r)
-				return
-			}
-
-			brewID := path
-			r.SetPathValue("id", brewID)
-
-			switch r.Method {
-			case http.MethodGet:
-				brewHandler.GetBrew(w, r)
-			case http.MethodDelete:
-				brewHandler.DeleteBrew(w, r)
-			default:
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-
-		mux.HandleFunc("/brews", func(w http.ResponseWriter, r *http.Request) {
-			switch r.Method {
-			case http.MethodPost:
-				brewHandler.CreateBrew(w, r)
-			case http.MethodGet:
-				brewHandler.ListBrews(w, r)
-			default:
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-	}
-
-	// Pokemon routes (if Pokemon service is available)
-	if pokemonHandler != nil {
-		// Pokemon routes for a specific coffee
-		mux.HandleFunc("/pokemon/", func(w http.ResponseWriter, r *http.Request) {
-			// Extract coffee_id from path: /pokemon/{coffee_id}
-			path := strings.TrimPrefix(r.URL.Path, "/pokemon/")
-			parts := strings.Split(path, "/")
-			if len(parts) == 0 || parts[0] == "" {
-				http.NotFound(w, r)
-				return
-			}
-			
-			coffeeID := parts[0]
-			
-			// Handle /pokemon/{coffee_id}/nickname
-			if len(parts) == 2 && parts[1] == "nickname" {
-				if r.Method == http.MethodPut {
-					// Temporarily set PathValue for handler
-					r.SetPathValue("coffee_id", coffeeID)
-					pokemonHandler.UpdateNickname(w, r)
-					return
-				}
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			
-			// Handle /pokemon/{coffee_id}
-			if len(parts) == 1 {
-				r.SetPathValue("coffee_id", coffeeID)
-				switch r.Method {
-				case http.MethodPost:
-					pokemonHandler.GeneratePokemon(w, r)
-				case http.MethodGet:
-					pokemonHandler.GetCoffeePokemon(w, r)
-				default:
-					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				}
-				return
-			}
-			
-			http.NotFound(w, r)
-		})
-		
-		// CoffeeDex routes
-		mux.HandleFunc("/pokedex/stats", func(w http.ResponseWriter, r *http.Request) {
-			switch r.Method {
-			case http.MethodGet:
-				pokemonHandler.GetPokemonStats(w, r)
-			default:
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-		
-		mux.HandleFunc("/pokedex", func(w http.ResponseWriter, r *http.Request) {
-			switch r.Method {
-			case http.MethodGet:
-				pokemonHandler.GetCoffeeDex(w, r)
-			default:
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-	}
-	
-	// Statistics routes (if statistics service is available)
-	if statisticsHandler != nil {
-		mux.HandleFunc("/statistics", func(w http.ResponseWriter, r *http.Request) {
-			switch r.Method {
-			case http.MethodGet:
-				statisticsHandler.GetStatistics(w, r)
-			default:
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-	}
-	
-	// Brewer routes (if brewer service is available)
-	if brewerHandler != nil {
-		mux.HandleFunc("/brewers/pokeball-types", func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodGet {
-				brewerHandler.GetAvailablePokeballTypes(w, r)
-			} else {
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-		
-		
-		mux.HandleFunc("/brewers", func(w http.ResponseWriter, r *http.Request) {
-			switch r.Method {
-			case http.MethodPost:
-				brewerHandler.CreateBrewer(w, r)
-			case http.MethodGet:
-				brewerHandler.GetAllBrewers(w, r)
-			default:
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			}
-		})
-		
-		mux.HandleFunc("/brewers/", func(w http.ResponseWriter, r *http.Request) {
-			path := strings.TrimPrefix(r.URL.Path, "/brewers/")
-			parts := strings.Split(path, "/")
-			if len(parts) == 0 || parts[0] == "" {
-				http.NotFound(w, r)
-				return
-			}
-			
-			brewerID := parts[0]
-			
-			
-			// Handle /brewers/{id}/standalone-recipes/{recipe_id}
-			if len(parts) == 3 && parts[1] == "standalone-recipes" {
-				r.SetPathValue("id", brewerID)
-				r.SetPathValue("recipe_id", parts[2])
-				if r.Method == http.MethodDelete {
-					brewerHandler.RemoveStandaloneRecipe(w, r)
-					return
-				}
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			
-			// Handle /brewers/{id}/standalone-recipes
-			if len(parts) == 2 && parts[1] == "standalone-recipes" {
-				r.SetPathValue("id", brewerID)
-				if r.Method == http.MethodPost {
-					brewerHandler.AddStandaloneRecipe(w, r)
-					return
-				}
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			
-			
-			// Handle /brewers/{id}
-			if len(parts) == 1 {
-				r.SetPathValue("id", brewerID)
-				if r.Method == http.MethodDelete {
-					brewerHandler.DeleteBrewer(w, r)
-					return
-				}
-				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			
-			http.NotFound(w, r)
-		})
-	}
-	
-	// Route to /coffees/{id} and /coffees/{id}/brews, /coffees/{id}/brew-progress
-	mux.HandleFunc("/coffees/", func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/coffees/")
-		parts := strings.Split(path, "/")
-		if len(parts) == 0 || parts[0] == "" {
-			http.NotFound(w, r)
-			return
-		}
-
-		coffeeID := parts[0]
-
-		// Handle sub-routes like /coffees/{id}/brews, /coffees/{id}/brew-progress, /coffees/{id}/finish
-		if len(parts) >= 2 && parts[1] != "" {
-			r.SetPathValue("coffee_id", coffeeID)
-			r.SetPathValue("id", coffeeID)
-			switch parts[1] {
-			case "brews":
-				if brewHandler == nil {
-					http.NotFound(w, r)
-					return
-				}
-				if r.Method == http.MethodGet {
-					brewHandler.GetBrewsForCoffee(w, r)
-				} else {
-					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				}
-			case "brew-progress":
-				if brewHandler == nil {
-					http.NotFound(w, r)
-					return
-				}
-				if r.Method == http.MethodGet {
-					brewHandler.GetBrewProgress(w, r)
-				} else {
-					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				}
-			case "finish":
-				if r.Method == http.MethodPost {
-					coffeeHandler.MarkAsFinished(w, r)
-				} else {
-					http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-				}
-			default:
-				http.NotFound(w, r)
-			}
-			return
-		}
-
-		// Handle /coffees/{id} for coffee CRUD
-		r.SetPathValue("id", coffeeID)
-		switch r.Method {
-		case http.MethodGet:
-			coffeeHandler.GetCoffee(w, r)
-		case http.MethodPut:
-			coffeeHandler.UpdateCoffee(w, r)
-		case http.MethodDelete:
-			coffeeHandler.DeleteCoffee(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	
-	// Health check endpoint
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
-	
-	// Static file server for Pokemon sprites
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
-	
-	// Add catch-all handler LAST
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r)
-	})
-	
-	loggedMux := loggingMiddleware(mux)
-	
-	fmt.Println("Server starting on :8080")
-	if pokemonService != nil {
-		fmt.Println("Pokemon features enabled")
-	} else {
-		fmt.Println("Pokemon features disabled")
-	}
-	log.Fatal(http.ListenAndServe(":8080", loggedMux))
-}
-
-// openMySQLConnection opens a MySQL database connection
-func openMySQLConnection(host, user, password, dbname string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?parseTime=true", user, password, host, dbname)
-	return sql.Open("mysql", dsn)
-}
-
-// loggingMiddleware logs HTTP requests
-func loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Started %s %s", r.Method, r.URL.Path)
-
-		next.ServeHTTP(w, r)
-
-		log.Printf("Completed %s %s", r.Method, r.URL.Path)
-	})
 }
