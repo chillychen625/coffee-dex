@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx tsc --noEmit 2>&1 | head -40)"
+      "Bash(npx tsc --noEmit 2>&1 | head -40)",
+      "Bash(go get *)",
+      "Bash(go build *)",
+      "Bash(go vet *)",
+      "Bash(sed -n '118,155p' /Users/cam/ws/git/coffee-dex/service/brew.go)",
+      "Bash(sed -n '40,80p' /Users/cam/ws/git/coffee-dex/service/pokemon.go)",
+      "Bash(sqlite3 *)"
     ]
   }
 }
