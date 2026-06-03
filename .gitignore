@@ -10,10 +10,6 @@ build/
 # Go module files
 vendor/
 
-# Database files
-*.db
-*.sqlite
-*.sqlite3
 
 # Environment files
 .env
