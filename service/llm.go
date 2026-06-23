@@ -5,28 +5,35 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-coffee-log/models"
+	"io"
 	"log"
-	"os"
-	"os/exec"
+	"net/http"
 	"strings"
 	"time"
 )
 
-// ClaudeService handles Pokemon selection via the Claude CLI
+const openRouterURL = "https://openrouter.ai/api/v1/chat/completions"
+const defaultModel = "anthropic/claude-sonnet-4-5"
+
+// ClaudeService handles Pokemon selection via OpenRouter
 type ClaudeService struct {
+	apiKey  string
 	model   string
 	timeout time.Duration
+	client  *http.Client
 }
 
-// NewClaudeService creates a new Claude CLI service
-func NewClaudeService(model string) *ClaudeService {
+// NewClaudeService creates a new OpenRouter-backed service
+func NewClaudeService(apiKey string) *ClaudeService {
 	return &ClaudeService{
-		model:   model,
-		timeout: 120 * time.Second,
+		apiKey:  apiKey,
+		model:   defaultModel,
+		timeout: 60 * time.Second,
+		client:  &http.Client{Timeout: 60 * time.Second},
 	}
 }
 
-// ClaudeResponse is the JSON response from Claude for Pokemon selection
+// ClaudeResponse is the structured response for Pokemon selection
 type ClaudeResponse struct {
 	PokemonName string  `json:"pokemon_name"`
 	PokemonID   int     `json:"pokemon_id"`
@@ -34,7 +41,7 @@ type ClaudeResponse struct {
 	Description string  `json:"description"`
 }
 
-// SelectPokemon asks Claude to pick a Pokemon for a coffee from available Pokemon
+// SelectPokemon asks the LLM to pick a Pokemon for a coffee
 func (s *ClaudeService) SelectPokemon(
 	coffee models.Coffee,
 	traits models.TastingTraits,
@@ -44,68 +51,61 @@ func (s *ClaudeService) SelectPokemon(
 ) (*ClaudeResponse, error) {
 	prompt := s.buildPrompt(coffee, traits, combinedNotes, typeHints, availablePokemon)
 
-	log.Printf("Calling Claude CLI for Pokemon selection (coffee: %s, %d available Pokemon, model: %s)", coffee.Name, len(availablePokemon), s.model)
+	log.Printf("Calling OpenRouter (%s) for Pokemon selection (coffee: %s, %d available Pokemon)", s.model, coffee.Name, len(availablePokemon))
 
-	// Build the command: pipe prompt via stdin to handle long prompts
-	cmd := exec.Command("claude", "-p", "--output-format", "json", "--model", s.model, "--no-session-persistence")
-	cmd.Stdin = bytes.NewBufferString(prompt)
-
-	// Route Claude CLI to local Ollama via the Anthropic-compatible API.
-	// See https://docs.ollama.com/integrations/claude-code
-	cmd.Env = append(os.Environ(),
-		"ANTHROPIC_AUTH_TOKEN=ollama",
-		"ANTHROPIC_API_KEY=",
-		"ANTHROPIC_BASE_URL=http://localhost:11434",
-	)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// Run with timeout
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Run()
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			return nil, fmt.Errorf("claude CLI failed: %w (stderr: %s, stdout: %s)", err, stderr.String(), stdout.String())
-		}
-	case <-time.After(s.timeout):
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
-		return nil, fmt.Errorf("claude CLI timed out after %s", s.timeout)
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"model": s.model,
+		"messages": []map[string]string{
+			{"role": "user", "content": prompt},
+		},
+		"temperature": 0.8,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Parse the JSON output from Claude CLI
-	// The --output-format json wraps the response; extract the result text
-	output := stdout.Bytes()
-
-	var cliResponse struct {
-		Result  string `json:"result"`
-		IsError bool   `json:"is_error"`
+	req, err := http.NewRequest("POST", openRouterURL, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-	if err := json.Unmarshal(output, &cliResponse); err != nil {
-		// Maybe it returned the JSON directly
-		return s.parseResponse(output, availablePokemon)
-	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+s.apiKey)
+	req.Header.Set("HTTP-Referer", "https://github.com/coffee-dex")
 
-	if cliResponse.IsError {
-		return nil, fmt.Errorf("claude CLI returned an error result: %s", cliResponse.Result)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
+	defer resp.Body.Close()
 
-	if cliResponse.Result != "" {
-		return s.parseResponse([]byte(cliResponse.Result), availablePokemon)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Try parsing the raw output
-	return s.parseResponse(output, availablePokemon)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("OpenRouter returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var apiResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("failed to parse API response: %w", err)
+	}
+	if len(apiResp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in API response")
+	}
+
+	content := apiResp.Choices[0].Message.Content
+	return s.parseResponse([]byte(content), availablePokemon)
 }
 
-// parseResponse extracts the ClaudeResponse from Claude's output
+// parseResponse extracts the ClaudeResponse from the LLM output
 func (s *ClaudeService) parseResponse(data []byte, availablePokemon []models.Pokemon) (*ClaudeResponse, error) {
 	text := string(data)
 
@@ -123,21 +123,19 @@ func (s *ClaudeService) parseResponse(data []byte, availablePokemon []models.Pok
 
 	var resp ClaudeResponse
 	if err := json.Unmarshal([]byte(text), &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse Claude response as JSON: %w\nraw: %s", err, string(data))
+		return nil, fmt.Errorf("failed to parse LLM response as JSON: %w\nraw: %s", err, string(data))
 	}
 
-	// Validate that the selected Pokemon is actually in the available list
+	// Validate that the selected Pokemon is in the available list
 	valid := false
 	for _, p := range availablePokemon {
 		if p.ID == resp.PokemonID {
 			valid = true
-			// Ensure the name matches the ID
 			resp.PokemonName = p.Name
 			break
 		}
 	}
 	if !valid {
-		// Try matching by name as fallback
 		for _, p := range availablePokemon {
 			if strings.EqualFold(p.Name, resp.PokemonName) {
 				resp.PokemonID = p.ID
@@ -148,13 +146,13 @@ func (s *ClaudeService) parseResponse(data []byte, availablePokemon []models.Pok
 		}
 	}
 	if !valid {
-		return nil, fmt.Errorf("Claude selected Pokemon %q (ID %d) which is not in the available list", resp.PokemonName, resp.PokemonID)
+		return nil, fmt.Errorf("LLM selected Pokemon %q (ID %d) which is not in the available list", resp.PokemonName, resp.PokemonID)
 	}
 
 	return &resp, nil
 }
 
-// buildPrompt creates the prompt for Claude to select a Pokemon
+// buildPrompt creates the prompt for Pokemon selection
 func (s *ClaudeService) buildPrompt(
 	coffee models.Coffee,
 	traits models.TastingTraits,
@@ -162,7 +160,6 @@ func (s *ClaudeService) buildPrompt(
 	typeHints map[string]float64,
 	availablePokemon []models.Pokemon,
 ) string {
-	// Build type hints string (sorted by score)
 	var typeHintParts []string
 	for typeName, score := range typeHints {
 		if score > 0.3 {
@@ -174,25 +171,23 @@ func (s *ClaudeService) buildPrompt(
 		typeHintStr = strings.Join(typeHintParts, ", ")
 	}
 
-	// Build available Pokemon list
 	var pokemonList []string
 	for _, p := range availablePokemon {
 		pokemonList = append(pokemonList, fmt.Sprintf("- #%d %s (%s)", p.ID, p.Name, p.Type))
 	}
 
-	// Build notes string
-	notesStr := "none recorded"
 	filteredNotes := make([]string, 0)
 	for _, n := range combinedNotes {
 		if n != "" {
 			filteredNotes = append(filteredNotes, n)
 		}
 	}
+	notesStr := "none recorded"
 	if len(filteredNotes) > 0 {
 		notesStr = strings.Join(filteredNotes, ", ")
 	}
 
-	prompt := fmt.Sprintf(`You are the CoffeeDex - a fun Pokemon-themed coffee journal. A user just logged enough brews of a coffee to unlock a Pokemon companion for it. Your job is to pick a Pokemon and write a fun, entertaining Pokedex-style entry.
+	return fmt.Sprintf(`You are the CoffeeDex - a fun Pokemon-themed coffee journal. A user just logged enough brews of a coffee to unlock a Pokemon companion for it. Your job is to pick a Pokemon and write a fun, entertaining Pokedex-style entry.
 
 COFFEE:
 - Name: %s
@@ -222,7 +217,7 @@ YOUR TASK:
 
 The type suggestions are just hints - feel free to pick any Pokemon from the available list that feels right.
 
-Respond with ONLY this JSON:
+Respond with ONLY this JSON (no markdown, no explanation):
 {
   "pokemon_name": "ExactName",
   "pokemon_id": 123,
@@ -237,6 +232,4 @@ Respond with ONLY this JSON:
 		traits.AromaticIntensity, traits.Savory, traits.Body, traits.Cleanliness,
 		typeHintStr,
 		strings.Join(pokemonList, "\n"))
-
-	return prompt
 }

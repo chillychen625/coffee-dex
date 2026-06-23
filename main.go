@@ -7,11 +7,11 @@ import (
 	"go-coffee-log/service"
 	"go-coffee-log/storage"
 	"log"
+	"os"
 )
 
 func main() {
 	dbPath := flag.String("db", "./coffee-dex.db", "SQLite database file path")
-	claudeModel := flag.String("claude-model", "ministral-3:8b", "Model for Pokemon selection (via local Ollama)")
 	enableClaude := flag.Bool("enable-claude", true, "Enable LLM-powered Pokemon selection")
 	flag.Parse()
 
@@ -35,8 +35,13 @@ func main() {
 
 	var claudeService *service.ClaudeService
 	if *enableClaude {
-		claudeService = service.NewClaudeService(*claudeModel)
-		fmt.Printf("LLM Pokemon selection enabled (model: %s)\n", *claudeModel)
+		apiKey := os.Getenv("OPENROUTER_API_KEY")
+		if apiKey == "" {
+			log.Println("Warning: OPENROUTER_API_KEY not set, LLM selection disabled")
+		} else {
+			claudeService = service.NewClaudeService(apiKey)
+			fmt.Println("LLM Pokemon selection enabled (OpenRouter / claude-sonnet-4-5)")
+		}
 	}
 
 	pokemonService := service.NewPokemonService(pokemonStore, coffeeService, brewService, claudeService)
