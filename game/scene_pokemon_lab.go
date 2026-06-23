@@ -2,7 +2,9 @@ package game
 
 import (
 	"fmt"
+	"image/color"
 	"sort"
+	"strings"
 
 	"go-coffee-log/models"
 
@@ -13,10 +15,10 @@ import (
 type labSortMode int
 
 const (
-	labSortDate    labSortMode = iota // CoffeePokemon.CreatedAt desc
-	labSortPokedex                    // PokemonID asc
-	labSortName                       // PokemonName asc
-	labSortRating                     // avg rating desc
+	labSortDate    labSortMode = iota
+	labSortPokedex
+	labSortName
+	labSortRating
 	labSortModeCount
 )
 
@@ -25,17 +27,16 @@ var labSortLabels = [labSortModeCount]string{"Date Added", "Pokédex #", "Name",
 type labSubMode int
 
 const (
-	labSubList    labSubMode = iota // Normal list view
-	labSubDetail                    // Detail view
-	labSubCompare                   // Comparison mode
+	labSubList    labSubMode = iota
+	labSubDetail
+	labSubCompare
 )
 
-// Layout constants for the detail view.
 const (
-	detailSpriteSize = 80 // sprite display size in pixels
-	detailSpriteX    = InternalWidth - detailSpriteSize - 12
-	detailSpriteY    = contentY + 4
-	detailTextMaxX   = detailSpriteX - 6 // text must not go past the sprite
+	detailSpriteSize = 72
+	detailSpriteX    = InternalWidth - detailSpriteSize - 10
+	detailSpriteY    = contentY + 2
+	detailTextMaxX   = detailSpriteX - 6
 )
 
 type PokemonLabScene struct {
@@ -44,16 +45,19 @@ type PokemonLabScene struct {
 	coffees     map[string]models.Coffee
 	coffeeNames map[string]string
 	avgRatings  map[string]float64
+	aggData     map[string]*models.AggregatedBrewData
 	sel         int
 	labScroll   int
-	detail      bool
 	sortMode    labSortMode
+	labSub      labSubMode
 
-	// Comparison mode
-	labSub       labSubMode
-	compareA     int // index of Pokemon A
-	compareB     int // index of Pokemon B (while picking)
-	comparePick  int // 0=picking B, 1=showing result
+	// Compare mode
+	compareA    int
+	compareB    int
+	comparePick int // 0=picking B, 1=showing result
+
+	// kept for backwards compat with existing detail flag uses
+	detail bool
 }
 
 func NewPokemonLabScene() *PokemonLabScene { return &PokemonLabScene{} }
@@ -81,10 +85,12 @@ func (s *PokemonLabScene) OnEnter(svc *Services) {
 	}
 
 	s.avgRatings = make(map[string]float64, len(s.pokemon))
+	s.aggData = make(map[string]*models.AggregatedBrewData, len(s.pokemon))
 	for _, p := range s.pokemon {
 		agg, err := svc.Brew.GetAggregatedData(p.CoffeeID)
 		if err == nil && agg != nil {
 			s.avgRatings[p.CoffeeID] = agg.AverageRating
+			s.aggData[p.CoffeeID] = agg
 		}
 	}
 
@@ -129,22 +135,18 @@ func (s *PokemonLabScene) scrollToSel() {
 }
 
 func (s *PokemonLabScene) Update() SceneID {
-	// Handle comparison mode.
 	if s.labSub == labSubCompare {
 		return s.updateCompare()
 	}
-
 	if s.detail {
 		if isKeyJustPressed(ebiten.KeyEscape) || isKeyJustPressed(ebiten.KeyZ) {
 			s.detail = false
 		}
 		return ScenePokemonLab
 	}
-
 	if isKeyJustPressed(ebiten.KeyEscape) {
 		return SceneMenu
 	}
-
 	if isKeyActive(ebiten.KeyArrowDown) && s.sel < len(s.pokemon)-1 {
 		s.sel++
 		s.scrollToSel()
@@ -153,20 +155,16 @@ func (s *PokemonLabScene) Update() SceneID {
 		s.sel--
 		s.scrollToSel()
 	}
-
 	if isKeyJustPressed(ebiten.KeyS) {
 		s.sortMode = (s.sortMode + 1) % labSortModeCount
 		s.applySort()
 	}
-
-	// C key enters compare mode — set A to current selection.
 	if isKeyJustPressed(ebiten.KeyC) && len(s.pokemon) >= 2 {
 		s.compareA = s.sel
 		s.compareB = s.sel
 		s.comparePick = 0
 		s.labSub = labSubCompare
 	}
-
 	if isKeyJustPressed(ebiten.KeyEnter) || isKeyJustPressed(ebiten.KeyZ) {
 		if len(s.pokemon) > 0 {
 			s.detail = true
@@ -180,16 +178,12 @@ func (s *PokemonLabScene) updateCompare() SceneID {
 		s.labSub = labSubList
 		return ScenePokemonLab
 	}
-
 	if s.comparePick == 1 {
-		// Showing result — any key goes back.
-		if isKeyJustPressed(ebiten.KeyEnter) || isKeyJustPressed(ebiten.KeyZ) {
+		if isKeyJustPressed(ebiten.KeyEnter) || isKeyJustPressed(ebiten.KeyZ) || isKeyJustPressed(ebiten.KeyEscape) {
 			s.labSub = labSubList
 		}
 		return ScenePokemonLab
 	}
-
-	// Picking B — navigate the list.
 	if isKeyActive(ebiten.KeyArrowDown) && s.compareB < len(s.pokemon)-1 {
 		s.compareB++
 	}
@@ -217,8 +211,10 @@ func (s *PokemonLabScene) Draw(screen *ebiten.Image) {
 	s.drawList(screen)
 }
 
+// ── List ─────────────────────────────────────────────────────────────────────
+
 func (s *PokemonLabScene) drawList(screen *ebiten.Image) {
-	title := fmt.Sprintf("Pokédex  [S: %s ↕]", labSortLabels[s.sortMode])
+	title := fmt.Sprintf("Pokédex  [S: %s]", labSortLabels[s.sortMode])
 	drawHeader(screen, title)
 
 	if len(s.pokemon) == 0 {
@@ -231,22 +227,21 @@ func (s *PokemonLabScene) drawList(screen *ebiten.Image) {
 	visible := s.visibleCount()
 	for i := 0; i < visible && s.labScroll+i < len(s.pokemon); i++ {
 		p := s.pokemon[s.labScroll+i]
+		coffeeName := truncate(s.coffeeNames[p.CoffeeID], 26)
 		nick := p.Nickname
 		if nick == "" {
 			nick = p.PokemonName
 		}
-		rating := ""
+		rating := "     "
 		if r, ok := s.avgRatings[p.CoffeeID]; ok && r > 0 {
-			rating = fmt.Sprintf("★%.1f", r)
+			rating = fmt.Sprintf("★%4.1f", r)
 		}
-		coffeeName := truncate(s.coffeeNames[p.CoffeeID], 18)
-		row := fmt.Sprintf("#%-3d %-14s  %-14s  Lv.%-3d  %-7s  %s",
-			p.PokemonID,
-			truncate(nick, 14),
+		// Coffee name first so you know what you're looking at immediately
+		row := fmt.Sprintf("%-26s  %-12s  %-14s  %s",
+			coffeeName,
+			truncate(nick, 12),
 			truncate(p.PokemonType, 14),
-			p.Level,
-			rating,
-			coffeeName)
+			rating)
 		rowY := contentY + i*(lineH+2)
 		drawListRowTyped(screen, row, 0, rowY, InternalWidth, s.labScroll+i == s.sel, p.PokemonType)
 	}
@@ -255,91 +250,164 @@ func (s *PokemonLabScene) drawList(screen *ebiten.Image) {
 		prog := fmt.Sprintf("%d/%d", s.sel+1, len(s.pokemon))
 		ebitenutil.DebugPrintAt(screen, prog, InternalWidth-len(prog)*6-8, hintsY-12)
 	}
-
 	drawHints(screen, "[↑↓] Scroll   [S] Sort   [C] Compare   [Enter] Details   [Esc] Back")
 }
 
+// ── Detail ───────────────────────────────────────────────────────────────────
+
 func (s *PokemonLabScene) drawDetail(screen *ebiten.Image, p models.CoffeePokemon) {
-	drawHeader(screen, fmt.Sprintf("Pokédex — #%03d %s", p.PokemonID, p.PokemonName))
-
-	// Sprite — right side
-	DrawSprite(screen, p.PokemonID, detailSpriteX, detailSpriteY, detailSpriteSize, detailSpriteSize)
-
-	// Type badges below sprite
-	typeBadgeY := detailSpriteY + detailSpriteSize + 4
-	bx := detailSpriteX
-	for _, part := range splitTypes(p.PokemonType) {
-		bx = drawTypeBadge(screen, part, bx, typeBadgeY)
-	}
-
-	// Text — left side
-	y := contentY + 6
-	const textW = detailSpriteX - 10
-	const charsPerLine = textW / 6
-
-	nick := p.Nickname
-	if nick == "" {
-		nick = "(no nickname)"
-	}
 	coffeeName := s.coffeeNames[p.CoffeeID]
 	if coffeeName == "" {
 		coffeeName = "(unknown)"
 	}
+	drawHeader(screen, fmt.Sprintf("#%03d %s  —  %s", p.PokemonID, p.PokemonName, truncate(coffeeName, 32)))
 
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Nickname:    %s", nick), 10, y)
-	y += lineH + 4
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Coffee:      %s", truncate(coffeeName, charsPerLine-13)), 10, y)
-	y += lineH + 4
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Level:       %d", p.Level), 10, y)
-	y += lineH + 4
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Confidence:  %.0f%%", p.MappingConfidence*100), 10, y)
-	y += lineH + 4
-	if r, ok := s.avgRatings[p.CoffeeID]; ok && r > 0 {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Avg Rating:  %.1f/10", r), 10, y)
+	// Sprite — top right
+	DrawSprite(screen, p.PokemonID, detailSpriteX, detailSpriteY, detailSpriteSize, detailSpriteSize)
+
+	// Type badges below sprite
+	bx := detailSpriteX
+	for _, part := range splitTypes(p.PokemonType) {
+		bx = drawTypeBadge(screen, part, bx, detailSpriteY+detailSpriteSize+4)
 	}
-	y += lineH + 6
 
-	if c, ok := s.coffees[p.CoffeeID]; ok {
-		var meta []string
+	const textW = detailSpriteX - 10
+	const cpl = textW / 6 // chars per line
+	y := contentY + 4
+
+	// ── Coffee identity block ─────────────────────────────────────────────────
+	c, hasCoffee := s.coffees[p.CoffeeID]
+	if hasCoffee {
 		if c.Roaster != "" {
-			meta = append(meta, c.Roaster)
+			ebitenutil.DebugPrintAt(screen, truncate(c.Roaster, cpl), 10, y)
+			y += lineH + 1
 		}
+		parts := []string{}
 		if c.Origin != "" {
-			meta = append(meta, c.Origin)
+			parts = append(parts, c.Origin)
+		}
+		if c.Variety != "" {
+			parts = append(parts, c.Variety)
 		}
 		if c.RoastLevel != "" {
-			meta = append(meta, c.RoastLevel)
+			parts = append(parts, c.RoastLevel)
 		}
 		if c.ProcessingMethod != "" {
-			meta = append(meta, c.ProcessingMethod)
+			parts = append(parts, c.ProcessingMethod)
 		}
-		if len(meta) > 0 {
-			line := ""
-			for i, m := range meta {
-				if i > 0 {
-					line += " · "
-				}
-				line += m
-			}
-			ebitenutil.DebugPrintAt(screen, truncate(line, charsPerLine), 10, y)
-			y += lineH + 4
+		if len(parts) > 0 {
+			ebitenutil.DebugPrintAt(screen, truncate(strings.Join(parts, " · "), cpl), 10, y)
+			y += lineH + 1
+		}
+		if c.RoastDate != nil && !c.RoastDate.IsZero() {
+			daysOff := c.DaysOffRoast()
+			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Roasted %s  (%d days ago)", c.RoastDate.Time().Format("Jan 2 2006"), daysOff), 10, y)
+			y += lineH + 1
 		}
 	}
 
+	// ── Stats row ─────────────────────────────────────────────────────────────
+	y += 2
+	fillRect(screen, 8, y, textW, 1, colorBorder)
+	y += 5
+
+	agg := s.aggData[p.CoffeeID]
+	statLine := fmt.Sprintf("Lv.%d  Conf:%.0f%%", p.Level, p.MappingConfidence*100)
+	if agg != nil {
+		statLine += fmt.Sprintf("  Brews:%d", agg.BrewCount)
+		if agg.AverageRating > 0 {
+			statLine += fmt.Sprintf("  ★%.1f/10", agg.AverageRating)
+		}
+	}
+	ebitenutil.DebugPrintAt(screen, statLine, 10, y)
+	y += lineH + 3
+
+	// ── Trait bars ────────────────────────────────────────────────────────────
+	if agg != nil {
+		tr := agg.AverageTraits
+		type traitVal struct {
+			name string
+			val  int
+		}
+		traits := []traitVal{
+			{"Sweet", tr.Sweetness},
+			{"Floral", tr.Florality},
+			{"Citrus", tr.CitrusFruitsIntensity},
+			{"Berry", tr.BerryIntensity},
+			{"Stonefrt", tr.StonefruitIntensity},
+			{"Body", tr.Body},
+			{"Roast", tr.RoastIntensity},
+			{"Bitter", tr.Bitterness},
+			{"Aroma", tr.AromaticIntensity},
+			{"Spice", tr.Spice},
+			{"Savory", tr.Savory},
+			{"Clean", tr.Cleanliness},
+		}
+		// only show traits with data (>= 0)
+		var scored []traitVal
+		for _, t := range traits {
+			if t.val >= 0 {
+				scored = append(scored, t)
+			}
+		}
+		if len(scored) > 0 {
+			ebitenutil.DebugPrintAt(screen, "Flavor profile:", 10, y)
+			y += lineH + 1
+			barColor := color.RGBA{R: 80, G: 160, B: 220, A: 255}
+			const labelCols = 8
+			const barW = 60
+			cols := 2
+			colWidth := textW / cols
+			for i, t := range scored {
+				col := i % cols
+				row := i / cols
+				rx := 10 + col*colWidth
+				ry := y + row*(lineH+2)
+				drawHBar(screen, rx, ry, labelCols, barW, t.name, float64(t.val), 10, barColor)
+			}
+			rows := (len(scored) + cols - 1) / cols
+			y += rows*(lineH+2) + 3
+		}
+	}
+
+	// ── Tasting notes ─────────────────────────────────────────────────────────
+	if agg != nil && len(agg.CombinedNotes) > 0 {
+		fillRect(screen, 8, y, textW, 1, colorBorder)
+		y += 5
+		// Collect unique non-empty notes (up to 6)
+		seen := map[string]bool{}
+		var notes []string
+		for _, n := range agg.CombinedNotes {
+			n = strings.TrimSpace(n)
+			if n != "" && !seen[strings.ToLower(n)] {
+				seen[strings.ToLower(n)] = true
+				notes = append(notes, n)
+			}
+		}
+		if len(notes) > 8 {
+			notes = notes[:8]
+		}
+		if len(notes) > 0 {
+			ebitenutil.DebugPrintAt(screen, "Notes: "+truncate(strings.Join(notes, "  ·  "), cpl-7), 10, y)
+			y += lineH + 3
+		}
+	}
+
+	// ── Pokedex description ───────────────────────────────────────────────────
 	if p.LLMDescription != "" {
 		fillRect(screen, 8, y, textW, 1, colorBorder)
-		y += 6
-		wrapText(screen, p.LLMDescription, 10, y, charsPerLine)
+		y += 5
+		wrapText(screen, p.LLMDescription, 10, y, cpl)
 	}
 
 	drawHints(screen, "[Esc/Z] Back to list")
 }
 
-// drawCompare renders the Pokemon comparison view.
+// ── Compare ──────────────────────────────────────────────────────────────────
+
 func (s *PokemonLabScene) drawCompare(screen *ebiten.Image) {
 	if s.comparePick == 0 {
-		// Picking B: show list with A highlighted and current selection marked.
-		drawHeader(screen, "Compare — Select second Pokemon")
+		drawHeader(screen, "Compare — pick second Pokemon")
 		visible := s.visibleCount()
 		offset := s.compareB - visible/2
 		if offset < 0 {
@@ -358,56 +426,165 @@ func (s *PokemonLabScene) drawCompare(screen *ebiten.Image) {
 			} else if idx == s.compareB {
 				prefix = "B>"
 			}
-			row := fmt.Sprintf("%s #%-3d %-14s  %s", prefix, p.PokemonID, truncate(nick, 14), truncate(p.PokemonType, 14))
+			coffee := truncate(s.coffeeNames[p.CoffeeID], 22)
+			row := fmt.Sprintf("%s %-22s  %-12s  %s", prefix, coffee, truncate(nick, 12), truncate(p.PokemonType, 12))
 			drawListRowTyped(screen, row, 0, contentY+i*(lineH+2), InternalWidth, idx == s.compareB, p.PokemonType)
 		}
-		drawHints(screen, "[↑↓] Select B   [Enter/Z] Confirm   [Esc] Cancel")
+		drawHints(screen, "[↑↓] Select   [Enter/Z] Confirm   [Esc] Cancel")
 		return
 	}
 
-	// Show side-by-side comparison.
+	// ── Side-by-side result ───────────────────────────────────────────────────
 	pA := s.pokemon[s.compareA]
 	pB := s.pokemon[s.compareB]
-	drawHeader(screen, fmt.Sprintf("Compare: %s vs %s", truncate(pA.PokemonName, 18), truncate(pB.PokemonName, 18)))
+	drawHeader(screen, fmt.Sprintf("%s  vs  %s", truncate(pA.PokemonName, 16), truncate(pB.PokemonName, 16)))
 
 	const half = InternalWidth / 2
-	const sprSize = 60
+	const sprSize = 56
+	const panelPad = 4
 
 	// Sprites
-	DrawSprite(screen, pA.PokemonID, half/2-sprSize/2, contentY+2, sprSize, sprSize)
-	DrawSprite(screen, pB.PokemonID, half+half/2-sprSize/2, contentY+2, sprSize, sprSize)
+	DrawSprite(screen, pA.PokemonID, half/2-sprSize/2, contentY+1, sprSize, sprSize)
+	DrawSprite(screen, pB.PokemonID, half+half/2-sprSize/2, contentY+1, sprSize, sprSize)
 
 	// Divider
 	fillRect(screen, half-1, contentY, 2, hintsY-contentY, colorBorder)
 
-	y := contentY + sprSize + 6
-	const colW = half - 4
-	const chars = colW / 6
+	y := contentY + sprSize + 4
+	const colW = half - panelPad*2
+	const cpl = colW / 6
 
-	drawPokemonComparePanel := func(p models.CoffeePokemon, xOff int) {
-		name := p.PokemonName
-		coffee := truncate(s.coffeeNames[p.CoffeeID], chars-9)
-		rating := ""
-		if r, ok := s.avgRatings[p.CoffeeID]; ok && r > 0 {
-			rating = fmt.Sprintf("★%.1f", r)
-		}
+	aggA := s.aggData[pA.CoffeeID]
+	aggB := s.aggData[pB.CoffeeID]
 
+	// Draw one panel
+	drawPanel := func(p models.CoffeePokemon, agg *models.AggregatedBrewData, xOff int) {
 		ry := y
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("#%-3d %s", p.PokemonID, truncate(name, chars-5)), xOff+2, ry)
-		ry += lineH + 2
-		ebitenutil.DebugPrintAt(screen, truncate(p.PokemonType, chars), xOff+2, ry)
-		ry += lineH + 2
-		ebitenutil.DebugPrintAt(screen, "Coffee: "+coffee, xOff+2, ry)
-		ry += lineH + 2
-		if rating != "" {
-			ebitenutil.DebugPrintAt(screen, "Rating: "+rating, xOff+2, ry)
+
+		// Pokemon + type
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("#%03d %s", p.PokemonID, truncate(p.PokemonName, cpl-5)), xOff+panelPad, ry)
+		ry += lineH + 1
+		bx := xOff + panelPad
+		for _, part := range splitTypes(p.PokemonType) {
+			bx = drawTypeBadge(screen, part, bx, ry)
 		}
-		ry += lineH + 2
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Lv.%d  Conf:%.0f%%", p.Level, p.MappingConfidence*100), xOff+2, ry)
+		ry += lineH + 3
+
+		// Coffee identity
+		coffeeName := s.coffeeNames[p.CoffeeID]
+		ebitenutil.DebugPrintAt(screen, truncate(coffeeName, cpl), xOff+panelPad, ry)
+		ry += lineH + 1
+		if c, ok := s.coffees[p.CoffeeID]; ok {
+			meta := ""
+			if c.Origin != "" {
+				meta = c.Origin
+			}
+			if c.RoastLevel != "" {
+				if meta != "" {
+					meta += " · "
+				}
+				meta += c.RoastLevel
+			}
+			if c.ProcessingMethod != "" {
+				if meta != "" {
+					meta += " · "
+				}
+				meta += c.ProcessingMethod
+			}
+			if meta != "" {
+				ebitenutil.DebugPrintAt(screen, truncate(meta, cpl), xOff+panelPad, ry)
+				ry += lineH + 1
+			}
+		}
+
+		// Stats
+		statLine := fmt.Sprintf("Lv.%d", p.Level)
+		if agg != nil && agg.AverageRating > 0 {
+			statLine += fmt.Sprintf("  ★%.1f", agg.AverageRating)
+		}
+		if agg != nil {
+			statLine += fmt.Sprintf("  %d brews", agg.BrewCount)
+		}
+		ebitenutil.DebugPrintAt(screen, statLine, xOff+panelPad, ry)
+		ry += lineH + 3
+
+		// Trait bars
+		if agg != nil {
+			fillRect(screen, xOff+panelPad, ry, colW-panelPad, 1, colorBorder)
+			ry += 4
+			drawTraitMini(screen, agg.AverageTraits, xOff+panelPad, ry, colW-panelPad*2)
+			ry += 8*(lineH+1) + 2
+		}
+
+		// Top notes
+		if agg != nil && len(agg.CombinedNotes) > 0 {
+			fillRect(screen, xOff+panelPad, ry, colW-panelPad, 1, colorBorder)
+			ry += 4
+			var notes []string
+			seen := map[string]bool{}
+			for _, n := range agg.CombinedNotes {
+				n = strings.TrimSpace(n)
+				if n != "" && !seen[strings.ToLower(n)] {
+					seen[strings.ToLower(n)] = true
+					notes = append(notes, n)
+				}
+			}
+			for i, n := range notes {
+				if i >= 4 || ry+lineH >= hintsY {
+					break
+				}
+				ebitenutil.DebugPrintAt(screen, "· "+truncate(n, cpl-2), xOff+panelPad, ry)
+				ry += lineH + 1
+			}
+		}
 	}
 
-	drawPokemonComparePanel(pA, 0)
-	drawPokemonComparePanel(pB, half)
+	drawPanel(pA, aggA, 0)
+	drawPanel(pB, aggB, half)
 
-	drawHints(screen, "[Enter/Z] Back   [Esc] Back")
+	// Highlight winner in avg rating
+	if aggA != nil && aggB != nil && aggA.AverageRating != aggB.AverageRating {
+		winX := 0
+		if aggB.AverageRating > aggA.AverageRating {
+			winX = half
+		}
+		fillRect(screen, winX+panelPad, y+sprSize-sprSize, colW-panelPad, 1, color.RGBA{R: 60, G: 200, B: 100, A: 200})
+	}
+
+	drawHints(screen, "[Enter/Z/Esc] Back")
+}
+
+// drawTraitMini renders a compact 2-column trait grid within a panel.
+func drawTraitMini(screen *ebiten.Image, tr models.TastingTraits, x, y, width int) {
+	type tv struct {
+		name string
+		val  int
+	}
+	traits := []tv{
+		{"Sweet", tr.Sweetness},
+		{"Floral", tr.Florality},
+		{"Citrus", tr.CitrusFruitsIntensity},
+		{"Berry", tr.BerryIntensity},
+		{"Body", tr.Body},
+		{"Roast", tr.RoastIntensity},
+		{"Bitter", tr.Bitterness},
+		{"Clean", tr.Cleanliness},
+	}
+	barColor := color.RGBA{R: 80, G: 160, B: 220, A: 255}
+	const labelCols = 6
+	barW := width/2 - labelCols*6 - 6
+	if barW < 10 {
+		barW = 10
+	}
+	colWidth := width / 2
+	for i, t := range traits {
+		if t.val < 0 {
+			continue
+		}
+		col := i % 2
+		row := i / 2
+		rx := x + col*colWidth
+		ry := y + row*(lineH+1)
+		drawHBar(screen, rx, ry, labelCols, barW, t.name, float64(t.val), 10, barColor)
+	}
 }
