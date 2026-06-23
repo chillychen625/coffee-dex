@@ -60,4 +60,5 @@ docs/generated/
 
 # API keys and sensitive data
 config/secrets.json
-config/keys.json
+config/keys.json.claude/worktrees/
+fix-descriptions
