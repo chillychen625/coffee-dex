@@ -83,9 +83,15 @@ type Coffee struct {
 	RoastLevel       string    `json:"roast_level"`
 	ProcessingMethod string    `json:"processing_method"`
 	RoastDate        *DateOnly `json:"roast_date,omitempty"`
-	IsFinished       bool      `json:"is_finished"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	IsFinished       bool       `json:"is_finished"`
+	FinishedAt       *time.Time `json:"finished_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+}
+
+// DaysOpen returns the number of days since the bag was opened (created).
+func (c *Coffee) DaysOpen() int {
+	return int(time.Since(c.CreatedAt).Hours() / 24)
 }
 
 // DaysOffRoast calculates days since roasting. Returns -1 if no roast date set.

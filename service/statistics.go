@@ -66,6 +66,17 @@ type Statistics struct {
 	// Confidence metrics
 	AverageConfidence float64                   `json:"average_confidence"`
 	HighConfidencePairings int                  `json:"high_confidence_pairings"` // >= 0.8
+
+	// Roaster statistics
+	RoasterStats      map[string]RoasterStat    `json:"roaster_stats"`
+}
+
+// RoasterStat represents statistics for a coffee roaster.
+type RoasterStat struct {
+	CoffeeCount   int     `json:"coffee_count"`
+	BrewCount     int     `json:"brew_count"`
+	AverageRating float64 `json:"average_rating"`
+	PokemonCount  int     `json:"pokemon_count"`
 }
 
 // CoffeeRatingSummary represents a summary of a coffee for rating display
@@ -153,6 +164,7 @@ func (s *StatisticsService) CalculateStatistics() (*Statistics, error) {
 		ProcessingStats:    make(map[string]ProcessingStat),
 		RoastDistribution:  make(map[string]int),
 		BrewerStats:        make(map[string]BrewerStat),
+		RoasterStats:       make(map[string]RoasterStat),
 	}
 
 	// Calculate statistics using brews for tasting data
@@ -164,6 +176,7 @@ func (s *StatisticsService) CalculateStatistics() (*Statistics, error) {
 	s.calculateTraitAverages(brews, stats)
 	s.calculateBrewerStats(brews, stats)
 	s.calculateConfidenceMetrics(pokemonMappings, stats)
+	s.calculateRoasterStats(coffees, brews, pokemonMappings, stats)
 
 	return stats, nil
 }
@@ -611,6 +624,47 @@ func (s *StatisticsService) getPokemonNameForCoffee(coffeeID string, mappings []
 		}
 	}
 	return ""
+}
+
+// calculateRoasterStats calculates per-roaster statistics.
+func (s *StatisticsService) calculateRoasterStats(coffees []models.Coffee, brews []models.Brew, mappings []models.CoffeePokemon, stats *Statistics) {
+	// Group brews and pokemon by coffee then by roaster.
+	coffeeBrews := make(map[string][]models.Brew)
+	for _, b := range brews {
+		coffeeBrews[b.CoffeeID] = append(coffeeBrews[b.CoffeeID], b)
+	}
+	pokemonByCoffee := make(map[string]bool)
+	for _, m := range mappings {
+		pokemonByCoffee[m.CoffeeID] = true
+	}
+
+	roasterData := make(map[string]*RoasterStat)
+	for _, coffee := range coffees {
+		roaster := coffee.Roaster
+		if roaster == "" {
+			roaster = "(unknown)"
+		}
+		if roasterData[roaster] == nil {
+			roasterData[roaster] = &RoasterStat{}
+		}
+		rs := roasterData[roaster]
+		rs.CoffeeCount++
+		brList := coffeeBrews[coffee.ID]
+		rs.BrewCount += len(brList)
+		for _, b := range brList {
+			rs.AverageRating += float64(b.Rating)
+		}
+		if pokemonByCoffee[coffee.ID] {
+			rs.PokemonCount++
+		}
+	}
+
+	for roaster, rs := range roasterData {
+		if rs.BrewCount > 0 {
+			rs.AverageRating = math.Round((rs.AverageRating/float64(rs.BrewCount))*10) / 10
+		}
+		stats.RoasterStats[roaster] = *rs
+	}
 }
 
 // minInt returns minimum of two integers

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-coffee-log/models"
+	"time"
 )
 
 // MySQLBrewStorage implements BrewStorage using MySQL database
@@ -200,6 +201,35 @@ func (m *MySQLBrewStorage) GetRecentWithCoffee(limit int) ([]models.BrewWithCoff
 	}
 
 	return results, nil
+}
+
+// GetLastBrewDates returns a map of coffeeID -> most recent brew time (stub for MySQL).
+func (m *MySQLBrewStorage) GetLastBrewDates() (map[string]time.Time, error) {
+	query := `SELECT coffee_id, MAX(created_at) FROM brews GROUP BY coffee_id`
+	rows, err := m.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query last brew dates: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]time.Time)
+	for rows.Next() {
+		var coffeeID string
+		var ts sql.NullTime
+		if err := rows.Scan(&coffeeID, &ts); err != nil {
+			return nil, fmt.Errorf("failed to scan last brew date: %w", err)
+		}
+		if ts.Valid {
+			result[coffeeID] = ts.Time
+		}
+	}
+	return result, rows.Err()
+}
+
+// ToggleBrewLearning flips the is_learning flag for a brew (stub for MySQL).
+func (m *MySQLBrewStorage) ToggleBrewLearning(id string) error {
+	_, err := m.db.Exec("UPDATE brews SET is_learning = 1 - COALESCE(is_learning, 0) WHERE id = ?", id)
+	return err
 }
 
 // Delete removes a brew entry from the database

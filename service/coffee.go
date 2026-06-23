@@ -106,7 +106,9 @@ func (s *CoffeeService) MarkAsFinished(id string) (models.Coffee, error) {
 	}
 
 	coffee.IsFinished = true
-	coffee.UpdatedAt = time.Now()
+	now := time.Now()
+	coffee.FinishedAt = &now
+	coffee.UpdatedAt = now
 
 	if err := s.storage.Update(id, coffee); err != nil {
 		return models.Coffee{}, err

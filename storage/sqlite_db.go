@@ -129,5 +129,9 @@ func (s *SQLiteDB) init() error {
 		}
 	}
 
+	// Safe migrations — ignore errors if column already exists.
+	s.db.Exec("ALTER TABLE brews ADD COLUMN is_learning INTEGER DEFAULT 0")
+	s.db.Exec("ALTER TABLE coffees ADD COLUMN finished_at TEXT")
+
 	return nil
 }

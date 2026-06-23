@@ -398,6 +398,13 @@ func (s *RoasteryScene) updateRecentBrews() SceneID {
 			s.recentScroll--
 		}
 	}
+	// M key toggles learning flag on selected brew.
+	if isKeyJustPressed(ebiten.KeyM) && len(s.recentBrews) > 0 {
+		b := s.recentBrews[s.brewSel]
+		if err := s.svc.Brew.ToggleBrewLearning(b.ID); err == nil {
+			s.loadRecentBrews()
+		}
+	}
 	return SceneRoastery
 }
 
@@ -609,8 +616,12 @@ func (s *RoasteryScene) drawRecentBrews(screen *ebiten.Image) {
 	visible := (hintsY - contentY) / (lineH + 2)
 	for i := 0; i < visible && s.recentScroll+i < len(s.recentBrews); i++ {
 		b := s.recentBrews[s.recentScroll+i]
-		row := fmt.Sprintf("%-22s  ★%-2d  %-10s  %s",
-			truncate(b.CoffeeName, 22), b.Rating,
+		learningFlag := "   "
+		if b.IsLearning {
+			learningFlag = "[L]"
+		}
+		row := fmt.Sprintf("%s %-20s  ★%-2d  %-10s  %s",
+			learningFlag, truncate(b.CoffeeName, 20), b.Rating,
 			truncate(b.Dripper, 10), b.CreatedAt.Format("01/02/06"))
 		drawListRow(screen, row, 0, contentY+i*(lineH+2), InternalWidth, s.recentScroll+i == s.brewSel)
 	}
@@ -619,7 +630,7 @@ func (s *RoasteryScene) drawRecentBrews(screen *ebiten.Image) {
 		prog := strconv.Itoa(s.brewSel+1) + "/" + strconv.Itoa(len(s.recentBrews))
 		ebitenutil.DebugPrintAt(screen, prog, InternalWidth-len(prog)*6-8, hintsY-12)
 	}
-	drawHints(screen, "[↑↓] Scroll   [Esc] Back")
+	drawHints(screen, "[↑↓] Scroll   [M] Toggle Learning   [Esc] Back")
 }
 
 func (s *RoasteryScene) drawBrewers(screen *ebiten.Image) {

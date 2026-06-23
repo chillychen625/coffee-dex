@@ -89,7 +89,7 @@ func (s *SQLiteCoffeeStorage) Save(coffee models.Coffee) error {
 func (s *SQLiteCoffeeStorage) GetByID(id string) (models.Coffee, error) {
 	query := `
 		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
-		       roast_date, is_finished, created_at, updated_at
+		       roast_date, is_finished, created_at, updated_at, finished_at
 		FROM coffees WHERE id = ?
 	`
 
@@ -101,7 +101,7 @@ func (s *SQLiteCoffeeStorage) GetByID(id string) (models.Coffee, error) {
 func (s *SQLiteCoffeeStorage) GetAll() ([]models.Coffee, error) {
 	query := `
 		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
-		       roast_date, is_finished, created_at, updated_at
+		       roast_date, is_finished, created_at, updated_at, finished_at
 		FROM coffees
 		ORDER BY created_at DESC
 	`
@@ -119,7 +119,7 @@ func (s *SQLiteCoffeeStorage) GetAll() ([]models.Coffee, error) {
 func (s *SQLiteCoffeeStorage) GetRecent(limit int) ([]models.Coffee, error) {
 	query := `
 		SELECT id, name, origin, roaster, variety, roast_level, processing_method,
-		       roast_date, is_finished, created_at, updated_at
+		       roast_date, is_finished, created_at, updated_at, finished_at
 		FROM coffees
 		ORDER BY created_at DESC
 		LIMIT ?
@@ -136,10 +136,15 @@ func (s *SQLiteCoffeeStorage) GetRecent(limit int) ([]models.Coffee, error) {
 
 // Update modifies an existing coffee entry.
 func (s *SQLiteCoffeeStorage) Update(id string, coffee models.Coffee) error {
+	var finishedAt interface{}
+	if coffee.FinishedAt != nil {
+		finishedAt = formatTime(*coffee.FinishedAt)
+	}
+
 	query := `
 		UPDATE coffees SET
 			name=?, origin=?, roaster=?, variety=?, roast_level=?, processing_method=?,
-			roast_date=?, is_finished=?, updated_at=?
+			roast_date=?, is_finished=?, updated_at=?, finished_at=?
 		WHERE id=?
 	`
 
@@ -157,7 +162,7 @@ func (s *SQLiteCoffeeStorage) Update(id string, coffee models.Coffee) error {
 		query,
 		coffee.Name, coffee.Origin, coffee.Roaster, coffee.Variety,
 		coffee.RoastLevel, coffee.ProcessingMethod, roastDate, isFinished,
-		formatTime(coffee.UpdatedAt), id,
+		formatTime(coffee.UpdatedAt), finishedAt, id,
 	)
 
 	if err != nil {
@@ -202,12 +207,12 @@ func (s *SQLiteCoffeeStorage) scanCoffee(row *sql.Row) (models.Coffee, error) {
 	var coffee models.Coffee
 	var roastDate sql.NullString
 	var isFinished sql.NullInt64
-	var createdAt, updatedAt sql.NullString
+	var createdAt, updatedAt, finishedAt sql.NullString
 
 	err := row.Scan(
 		&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster, &coffee.Variety,
 		&coffee.RoastLevel, &coffee.ProcessingMethod, &roastDate, &isFinished,
-		&createdAt, &updatedAt,
+		&createdAt, &updatedAt, &finishedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -221,6 +226,9 @@ func (s *SQLiteCoffeeStorage) scanCoffee(row *sql.Row) (models.Coffee, error) {
 	coffee.IsFinished = isFinished.Valid && isFinished.Int64 != 0
 	coffee.CreatedAt = parseTime(createdAt)
 	coffee.UpdatedAt = parseTime(updatedAt)
+	if t := parseTime(finishedAt); !t.IsZero() {
+		coffee.FinishedAt = &t
+	}
 
 	return coffee, nil
 }
@@ -233,12 +241,12 @@ func (s *SQLiteCoffeeStorage) scanCoffees(rows *sql.Rows) ([]models.Coffee, erro
 		var coffee models.Coffee
 		var roastDate sql.NullString
 		var isFinished sql.NullInt64
-		var createdAt, updatedAt sql.NullString
+		var createdAt, updatedAt, finishedAt sql.NullString
 
 		err := rows.Scan(
 			&coffee.ID, &coffee.Name, &coffee.Origin, &coffee.Roaster, &coffee.Variety,
 			&coffee.RoastLevel, &coffee.ProcessingMethod, &roastDate, &isFinished,
-			&createdAt, &updatedAt,
+			&createdAt, &updatedAt, &finishedAt,
 		)
 
 		if err != nil {
@@ -249,6 +257,9 @@ func (s *SQLiteCoffeeStorage) scanCoffees(rows *sql.Rows) ([]models.Coffee, erro
 		coffee.IsFinished = isFinished.Valid && isFinished.Int64 != 0
 		coffee.CreatedAt = parseTime(createdAt)
 		coffee.UpdatedAt = parseTime(updatedAt)
+		if t := parseTime(finishedAt); !t.IsZero() {
+			coffee.FinishedAt = &t
+		}
 
 		coffees = append(coffees, coffee)
 	}

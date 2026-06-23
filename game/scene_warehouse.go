@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"sort"
+	"time"
 
 	"go-coffee-log/models"
 
@@ -45,9 +46,10 @@ type WarehouseScene struct {
 	sub warehouseSub
 
 	// List (sel=0 → Add Coffee; sel=i+1 → coffees[i])
-	sel          int
-	coffees      []models.Coffee // open bags only
-	coffeeScroll int
+	sel            int
+	coffees        []models.Coffee // open bags only
+	coffeeScroll   int
+	lastBrewDates  map[string]time.Time
 
 	// Add form
 	name          TextInput
@@ -126,6 +128,11 @@ func (s *WarehouseScene) loadCoffees() {
 	s.roaster.SetOptions(sortedKeys(roasterSet))
 	s.origin.SetOptions(sortedKeys(originSet))
 	s.variety.SetOptions(sortedKeys(varietySet))
+
+	// Load last brew dates for recency display.
+	if dates, err := s.svc.Brew.GetLastBrewDates(); err == nil {
+		s.lastBrewDates = dates
+	}
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -525,12 +532,22 @@ func (s *WarehouseScene) drawList(screen *ebiten.Image) {
 		if roaster == "" {
 			roaster = "—"
 		}
-		status := ""
-		if c.IsFinished {
-			status = " [closed]"
+		// Brew recency label.
+		recency := "no brews"
+		if t, ok := s.lastBrewDates[c.ID]; ok && !t.IsZero() {
+			days := int(time.Since(t).Hours() / 24)
+			if days == 0 {
+				recency = "today"
+			} else {
+				recency = fmt.Sprintf("%dd ago", days)
+			}
 		}
-		row := fmt.Sprintf("%-24s  %-16s  %-14s%s",
-			truncate(c.Name, 24), truncate(origin, 16), truncate(roaster, 14), status)
+		closed := ""
+		if c.IsFinished {
+			closed = "[X]"
+		}
+		row := fmt.Sprintf("%-20s  %-12s  %-10s  %-8s %s",
+			truncate(c.Name, 20), truncate(roaster, 12), truncate(origin, 10), recency, closed)
 		drawListRow(screen, row, 0, y, InternalWidth, s.sel == i+1+s.coffeeScroll)
 		y += lineH + 2
 	}
@@ -568,6 +585,14 @@ func (s *WarehouseScene) drawActions(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, c.RoastLevel+" · "+c.ProcessingMethod, 10, y)
 		y += lineH + 2
 	}
+
+	// Bag lifecycle info
+	daysOpenLine := fmt.Sprintf("Open %d days", c.DaysOpen())
+	if c.FinishedAt != nil {
+		daysOpenLine += "  ·  Closed: " + c.FinishedAt.Format("2006-01-02")
+	}
+	ebitenutil.DebugPrintAt(screen, daysOpenLine, 10, y)
+	y += lineH + 2
 
 	// Brew progress
 	bp := s.brewProgress

@@ -151,24 +151,42 @@ func (s *BrewService) GetBrewProgress(coffeeID string, hasPokemon bool, isFinish
 	}, nil
 }
 
+// GetLastBrewDates returns a map of coffeeID -> most recent brew time.
+func (s *BrewService) GetLastBrewDates() (map[string]time.Time, error) {
+	return s.storage.GetLastBrewDates()
+}
+
+// ToggleBrewLearning flips the is_learning flag on a brew.
+func (s *BrewService) ToggleBrewLearning(id string) error {
+	return s.storage.ToggleBrewLearning(id)
+}
+
 // GetAggregatedData computes aggregated data from all brews of a coffee
 func (s *BrewService) GetAggregatedData(coffeeID string) (*models.AggregatedBrewData, error) {
-	brews, err := s.storage.GetByCoffeeID(coffeeID)
+	allBrews, err := s.storage.GetByCoffeeID(coffeeID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Filter out learning sessions before aggregation.
+	var brews []models.Brew
+	for _, b := range allBrews {
+		if !b.IsLearning {
+			brews = append(brews, b)
+		}
+	}
+
 	if len(brews) == 0 {
-		// Return empty/default aggregated data for coffees with no brews
+		// Return empty/default aggregated data for coffees with no non-learning brews
 		return &models.AggregatedBrewData{
 			CoffeeID:  coffeeID,
-			BrewCount: 0,
+			BrewCount: len(allBrews),
 		}, nil
 	}
 
 	return &models.AggregatedBrewData{
 		CoffeeID:        coffeeID,
-		BrewCount:       len(brews),
+		BrewCount:       len(allBrews),
 		AverageRating:   models.AverageRating(brews),
 		AverageTraits:   models.AverageTraits(brews),
 		CombinedNotes:   models.CombineNotes(brews),

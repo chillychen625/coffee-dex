@@ -17,6 +17,7 @@ type Brew struct {
 	EndTime       DrawDownTime  `json:"end_time"`
 	CreatedAt     time.Time     `json:"created_at"`
 	DaysOffRoast  int           `json:"days_off_roast"` // Calculated: days between roast date and brew date (-1 if no roast date)
+	IsLearning    bool          `json:"is_learning"`    // If true, excluded from trait/rating aggregation
 }
 
 // BrewWithCoffee includes the coffee information along with the brew

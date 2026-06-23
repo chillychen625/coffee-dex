@@ -22,6 +22,14 @@ const (
 
 var labSortLabels = [labSortModeCount]string{"Date Added", "Pokédex #", "Name", "Avg Rating"}
 
+type labSubMode int
+
+const (
+	labSubList    labSubMode = iota // Normal list view
+	labSubDetail                    // Detail view
+	labSubCompare                   // Comparison mode
+)
+
 // Layout constants for the detail view.
 const (
 	detailSpriteSize = 80 // sprite display size in pixels
@@ -40,6 +48,12 @@ type PokemonLabScene struct {
 	labScroll   int
 	detail      bool
 	sortMode    labSortMode
+
+	// Comparison mode
+	labSub       labSubMode
+	compareA     int // index of Pokemon A
+	compareB     int // index of Pokemon B (while picking)
+	comparePick  int // 0=picking B, 1=showing result
 }
 
 func NewPokemonLabScene() *PokemonLabScene { return &PokemonLabScene{} }
@@ -49,6 +63,7 @@ func (s *PokemonLabScene) OnEnter(svc *Services) {
 	s.sel = 0
 	s.labScroll = 0
 	s.detail = false
+	s.labSub = labSubList
 
 	pokemon, err := svc.Pokemon.GetAllCoffeePokemon()
 	if err == nil {
@@ -114,6 +129,11 @@ func (s *PokemonLabScene) scrollToSel() {
 }
 
 func (s *PokemonLabScene) Update() SceneID {
+	// Handle comparison mode.
+	if s.labSub == labSubCompare {
+		return s.updateCompare()
+	}
+
 	if s.detail {
 		if isKeyJustPressed(ebiten.KeyEscape) || isKeyJustPressed(ebiten.KeyZ) {
 			s.detail = false
@@ -139,6 +159,14 @@ func (s *PokemonLabScene) Update() SceneID {
 		s.applySort()
 	}
 
+	// C key enters compare mode — set A to current selection.
+	if isKeyJustPressed(ebiten.KeyC) && len(s.pokemon) >= 2 {
+		s.compareA = s.sel
+		s.compareB = s.sel
+		s.comparePick = 0
+		s.labSub = labSubCompare
+	}
+
 	if isKeyJustPressed(ebiten.KeyEnter) || isKeyJustPressed(ebiten.KeyZ) {
 		if len(s.pokemon) > 0 {
 			s.detail = true
@@ -147,8 +175,41 @@ func (s *PokemonLabScene) Update() SceneID {
 	return ScenePokemonLab
 }
 
+func (s *PokemonLabScene) updateCompare() SceneID {
+	if isKeyJustPressed(ebiten.KeyEscape) {
+		s.labSub = labSubList
+		return ScenePokemonLab
+	}
+
+	if s.comparePick == 1 {
+		// Showing result — any key goes back.
+		if isKeyJustPressed(ebiten.KeyEnter) || isKeyJustPressed(ebiten.KeyZ) {
+			s.labSub = labSubList
+		}
+		return ScenePokemonLab
+	}
+
+	// Picking B — navigate the list.
+	if isKeyActive(ebiten.KeyArrowDown) && s.compareB < len(s.pokemon)-1 {
+		s.compareB++
+	}
+	if isKeyActive(ebiten.KeyArrowUp) && s.compareB > 0 {
+		s.compareB--
+	}
+	if isKeyJustPressed(ebiten.KeyEnter) || isKeyJustPressed(ebiten.KeyZ) {
+		if s.compareB != s.compareA {
+			s.comparePick = 1
+		}
+	}
+	return ScenePokemonLab
+}
+
 func (s *PokemonLabScene) Draw(screen *ebiten.Image) {
 	drawBackground(screen)
+	if s.labSub == labSubCompare {
+		s.drawCompare(screen)
+		return
+	}
 	if s.detail && len(s.pokemon) > 0 {
 		s.drawDetail(screen, s.pokemon[s.sel])
 		return
@@ -195,7 +256,7 @@ func (s *PokemonLabScene) drawList(screen *ebiten.Image) {
 		ebitenutil.DebugPrintAt(screen, prog, InternalWidth-len(prog)*6-8, hintsY-12)
 	}
 
-	drawHints(screen, "[↑↓] Scroll   [S] Sort   [Enter] Details   [Esc] Back")
+	drawHints(screen, "[↑↓] Scroll   [S] Sort   [C] Compare   [Enter] Details   [Esc] Back")
 }
 
 func (s *PokemonLabScene) drawDetail(screen *ebiten.Image, p models.CoffeePokemon) {
@@ -272,4 +333,81 @@ func (s *PokemonLabScene) drawDetail(screen *ebiten.Image, p models.CoffeePokemo
 	}
 
 	drawHints(screen, "[Esc/Z] Back to list")
+}
+
+// drawCompare renders the Pokemon comparison view.
+func (s *PokemonLabScene) drawCompare(screen *ebiten.Image) {
+	if s.comparePick == 0 {
+		// Picking B: show list with A highlighted and current selection marked.
+		drawHeader(screen, "Compare — Select second Pokemon")
+		visible := s.visibleCount()
+		offset := s.compareB - visible/2
+		if offset < 0 {
+			offset = 0
+		}
+		for i := 0; i < visible && offset+i < len(s.pokemon); i++ {
+			idx := offset + i
+			p := s.pokemon[idx]
+			nick := p.Nickname
+			if nick == "" {
+				nick = p.PokemonName
+			}
+			prefix := "  "
+			if idx == s.compareA {
+				prefix = "A:"
+			} else if idx == s.compareB {
+				prefix = "B>"
+			}
+			row := fmt.Sprintf("%s #%-3d %-14s  %s", prefix, p.PokemonID, truncate(nick, 14), truncate(p.PokemonType, 14))
+			drawListRowTyped(screen, row, 0, contentY+i*(lineH+2), InternalWidth, idx == s.compareB, p.PokemonType)
+		}
+		drawHints(screen, "[↑↓] Select B   [Enter/Z] Confirm   [Esc] Cancel")
+		return
+	}
+
+	// Show side-by-side comparison.
+	pA := s.pokemon[s.compareA]
+	pB := s.pokemon[s.compareB]
+	drawHeader(screen, fmt.Sprintf("Compare: %s vs %s", truncate(pA.PokemonName, 18), truncate(pB.PokemonName, 18)))
+
+	const half = InternalWidth / 2
+	const sprSize = 60
+
+	// Sprites
+	DrawSprite(screen, pA.PokemonID, half/2-sprSize/2, contentY+2, sprSize, sprSize)
+	DrawSprite(screen, pB.PokemonID, half+half/2-sprSize/2, contentY+2, sprSize, sprSize)
+
+	// Divider
+	fillRect(screen, half-1, contentY, 2, hintsY-contentY, colorBorder)
+
+	y := contentY + sprSize + 6
+	const colW = half - 4
+	const chars = colW / 6
+
+	drawPokemonComparePanel := func(p models.CoffeePokemon, xOff int) {
+		name := p.PokemonName
+		coffee := truncate(s.coffeeNames[p.CoffeeID], chars-9)
+		rating := ""
+		if r, ok := s.avgRatings[p.CoffeeID]; ok && r > 0 {
+			rating = fmt.Sprintf("★%.1f", r)
+		}
+
+		ry := y
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("#%-3d %s", p.PokemonID, truncate(name, chars-5)), xOff+2, ry)
+		ry += lineH + 2
+		ebitenutil.DebugPrintAt(screen, truncate(p.PokemonType, chars), xOff+2, ry)
+		ry += lineH + 2
+		ebitenutil.DebugPrintAt(screen, "Coffee: "+coffee, xOff+2, ry)
+		ry += lineH + 2
+		if rating != "" {
+			ebitenutil.DebugPrintAt(screen, "Rating: "+rating, xOff+2, ry)
+		}
+		ry += lineH + 2
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Lv.%d  Conf:%.0f%%", p.Level, p.MappingConfidence*100), xOff+2, ry)
+	}
+
+	drawPokemonComparePanel(pA, 0)
+	drawPokemonComparePanel(pB, half)
+
+	drawHints(screen, "[Enter/Z] Back   [Esc] Back")
 }

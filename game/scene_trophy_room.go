@@ -11,7 +11,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
-const trophyPageCount = 5
+const trophyPageCount = 6
 
 var trophyPageTitles = [trophyPageCount]string{
 	"Overview",
@@ -19,6 +19,7 @@ var trophyPageTitles = [trophyPageCount]string{
 	"Type Distribution",
 	"Origins",
 	"Brewers & Processing",
+	"Roasters",
 }
 
 // Sorted display slices built in OnEnter to avoid per-frame allocation.
@@ -40,15 +41,24 @@ type methodEntry struct {
 	avgRating float64
 }
 
+type roasterEntry struct {
+	name         string
+	coffeeCount  int
+	brewCount    int
+	avgRating    float64
+	pokemonCount int
+}
+
 type TrophyRoomScene struct {
 	svc   *Services
 	stats *service.Statistics
 	err   string
 	page  int
 
-	sortedTypes   []typeStat
-	sortedBrewers []brewerEntry
-	sortedMethods []methodEntry
+	sortedTypes    []typeStat
+	sortedBrewers  []brewerEntry
+	sortedMethods  []methodEntry
+	sortedRoasters []roasterEntry
 }
 
 func NewTrophyRoomScene() *TrophyRoomScene { return &TrophyRoomScene{} }
@@ -96,6 +106,15 @@ func (s *TrophyRoomScene) buildSortedSlices() {
 	sort.Slice(s.sortedMethods, func(i, j int) bool {
 		return s.sortedMethods[i].count > s.sortedMethods[j].count
 	})
+
+	// Roasters sorted by coffeeCount desc.
+	s.sortedRoasters = nil
+	for name, rs := range st.RoasterStats {
+		s.sortedRoasters = append(s.sortedRoasters, roasterEntry{name, rs.CoffeeCount, rs.BrewCount, rs.AverageRating, rs.PokemonCount})
+	}
+	sort.Slice(s.sortedRoasters, func(i, j int) bool {
+		return s.sortedRoasters[i].coffeeCount > s.sortedRoasters[j].coffeeCount
+	})
 }
 
 func (s *TrophyRoomScene) Update() SceneID {
@@ -140,6 +159,8 @@ func (s *TrophyRoomScene) Draw(screen *ebiten.Image) {
 		s.drawOrigins(screen)
 	case 4:
 		s.drawBrewersProcessing(screen)
+	case 5:
+		s.drawRoasters(screen)
 	}
 	drawHints(screen, "[←/Z] Prev   [Tab/→/X] Next   [Esc] Back")
 }
@@ -407,5 +428,57 @@ func (s *TrophyRoomScene) drawBrewersProcessing(screen *ebiten.Image) {
 			}
 			y += rowH
 		}
+	}
+}
+
+// ── Page 5: Roasters ─────────────────────────────────────────────────────────
+
+func (s *TrophyRoomScene) drawRoasters(screen *ebiten.Image) {
+	if len(s.sortedRoasters) == 0 {
+		ebitenutil.DebugPrintAt(screen, "No roaster data yet.", 10, contentY+10)
+		return
+	}
+
+	y := contentY + 4
+	const rowH = lineH + 4
+	roasterColor := color.RGBA{R: 180, G: 120, B: 60, A: 255}
+
+	ebitenutil.DebugPrintAt(screen, "Roaster               Coffees  Brews  ★Avg  Poke", 10, y)
+	y += lineH + 4
+	fillRect(screen, 8, y, InternalWidth-16, 1, colorBorder)
+	y += 4
+
+	maxCoffees := 1
+	if len(s.sortedRoasters) > 0 {
+		maxCoffees = s.sortedRoasters[0].coffeeCount
+	}
+	const barW = 60
+
+	for _, r := range s.sortedRoasters {
+		if y+rowH > hintsY-lineH {
+			break
+		}
+		ebitenutil.DebugPrintAt(screen, truncate(r.name, 20), 10, y+1)
+
+		// Small bar for coffee count
+		bx := 130
+		fillRect(screen, bx, y, barW, lineH, colorInput)
+		strokeRect(screen, bx, y, barW, lineH, colorBorder)
+		fill := int(float64(barW-2) * float64(r.coffeeCount) / float64(maxCoffees))
+		if fill > 0 {
+			fillRect(screen, bx+1, y+1, fill, lineH-2, roasterColor)
+		}
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", r.coffeeCount), bx+barW+4, y+1)
+
+		col2 := bx + barW + 24
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d brews", r.brewCount), col2, y+1)
+		col3 := col2 + 60
+		if r.avgRating > 0 {
+			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("★%.1f", r.avgRating), col3, y+1)
+		}
+		if r.pokemonCount > 0 {
+			ebitenutil.DebugPrintAt(screen, fmt.Sprintf("%d", r.pokemonCount), col3+36, y+1)
+		}
+		y += rowH
 	}
 }

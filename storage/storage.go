@@ -1,6 +1,9 @@
 package storage
 
-import "go-coffee-log/models"
+import (
+	"go-coffee-log/models"
+	"time"
+)
 
 // CoffeeStorage defines the interface for coffee data persistence
 type CoffeeStorage interface {
@@ -21,5 +24,7 @@ type BrewStorage interface {
 	GetAll() ([]models.Brew, error)
 	GetRecent(limit int) ([]models.Brew, error)
 	GetRecentWithCoffee(limit int) ([]models.BrewWithCoffee, error)
+	GetLastBrewDates() (map[string]time.Time, error)
+	ToggleBrewLearning(id string) error
 	Delete(id string) error
 }

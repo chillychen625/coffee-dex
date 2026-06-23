@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go-coffee-log/models"
+	"time"
 )
 
 // SQLiteBrewStorage implements BrewStorage using SQLite.
@@ -34,11 +35,16 @@ func (s *SQLiteBrewStorage) Save(brew models.Brew) error {
 		return fmt.Errorf("failed to marshal recipe: %w", err)
 	}
 
+	isLearning := 0
+	if brew.IsLearning {
+		isLearning = 1
+	}
+
 	query := `
 		INSERT INTO brews (
 			id, coffee_id, tasting_notes, tasting_traits, rating, recipe, dripper,
-			end_time_minutes, end_time_seconds, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			end_time_minutes, end_time_seconds, created_at, is_learning
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
 	_, err = s.db.Exec(
@@ -47,6 +53,7 @@ func (s *SQLiteBrewStorage) Save(brew models.Brew) error {
 		tastingNotesJSON, tastingTraitsJSON, brew.Rating, recipeJSON, brew.Dripper,
 		brew.EndTime.Minutes, brew.EndTime.Seconds,
 		formatTime(brew.CreatedAt),
+		isLearning,
 	)
 
 	if err != nil {
@@ -60,7 +67,7 @@ func (s *SQLiteBrewStorage) Save(brew models.Brew) error {
 func (s *SQLiteBrewStorage) GetByID(id string) (models.Brew, error) {
 	query := `
 		SELECT id, coffee_id, tasting_notes, tasting_traits, rating, recipe, dripper,
-		       end_time_minutes, end_time_seconds, created_at
+		       end_time_minutes, end_time_seconds, created_at, COALESCE(is_learning, 0)
 		FROM brews WHERE id = ?
 	`
 
@@ -72,7 +79,7 @@ func (s *SQLiteBrewStorage) GetByID(id string) (models.Brew, error) {
 func (s *SQLiteBrewStorage) GetByCoffeeID(coffeeID string) ([]models.Brew, error) {
 	query := `
 		SELECT id, coffee_id, tasting_notes, tasting_traits, rating, recipe, dripper,
-		       end_time_minutes, end_time_seconds, created_at
+		       end_time_minutes, end_time_seconds, created_at, COALESCE(is_learning, 0)
 		FROM brews
 		WHERE coffee_id = ?
 		ORDER BY created_at DESC
@@ -104,7 +111,7 @@ func (s *SQLiteBrewStorage) GetBrewCount(coffeeID string) (int, error) {
 func (s *SQLiteBrewStorage) GetAll() ([]models.Brew, error) {
 	query := `
 		SELECT id, coffee_id, tasting_notes, tasting_traits, rating, recipe, dripper,
-		       end_time_minutes, end_time_seconds, created_at
+		       end_time_minutes, end_time_seconds, created_at, COALESCE(is_learning, 0)
 		FROM brews
 		ORDER BY created_at DESC
 	`
@@ -122,7 +129,7 @@ func (s *SQLiteBrewStorage) GetAll() ([]models.Brew, error) {
 func (s *SQLiteBrewStorage) GetRecent(limit int) ([]models.Brew, error) {
 	query := `
 		SELECT id, coffee_id, tasting_notes, tasting_traits, rating, recipe, dripper,
-		       end_time_minutes, end_time_seconds, created_at
+		       end_time_minutes, end_time_seconds, created_at, COALESCE(is_learning, 0)
 		FROM brews
 		ORDER BY created_at DESC
 		LIMIT ?
@@ -141,7 +148,7 @@ func (s *SQLiteBrewStorage) GetRecent(limit int) ([]models.Brew, error) {
 func (s *SQLiteBrewStorage) GetRecentWithCoffee(limit int) ([]models.BrewWithCoffee, error) {
 	query := `
 		SELECT b.id, b.coffee_id, b.tasting_notes, b.tasting_traits, b.rating, b.recipe, b.dripper,
-		       b.end_time_minutes, b.end_time_seconds, b.created_at,
+		       b.end_time_minutes, b.end_time_seconds, b.created_at, COALESCE(b.is_learning, 0),
 		       c.name AS coffee_name, c.origin AS coffee_origin, c.roast_date
 		FROM brews b
 		JOIN coffees c ON b.coffee_id = c.id
@@ -162,12 +169,13 @@ func (s *SQLiteBrewStorage) GetRecentWithCoffee(limit int) ([]models.BrewWithCof
 		var tastingNotesJSON, tastingTraitsJSON, recipeJSON []byte
 		var createdAtStr sql.NullString
 		var roastDate sql.NullString
+		var isLearningInt int
 
 		err := rows.Scan(
 			&bwc.ID, &bwc.CoffeeID,
 			&tastingNotesJSON, &tastingTraitsJSON, &bwc.Rating, &recipeJSON, &bwc.Dripper,
 			&bwc.EndTime.Minutes, &bwc.EndTime.Seconds,
-			&createdAtStr,
+			&createdAtStr, &isLearningInt,
 			&bwc.CoffeeName, &bwc.CoffeeOrigin, &roastDate,
 		)
 		if err != nil {
@@ -175,6 +183,7 @@ func (s *SQLiteBrewStorage) GetRecentWithCoffee(limit int) ([]models.BrewWithCof
 		}
 
 		bwc.CreatedAt = parseTime(createdAtStr)
+		bwc.IsLearning = isLearningInt != 0
 
 		if err := json.Unmarshal(tastingNotesJSON, &bwc.TastingNotes); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal tasting notes: %w", err)
@@ -206,6 +215,36 @@ func (s *SQLiteBrewStorage) GetRecentWithCoffee(limit int) ([]models.BrewWithCof
 	return results, nil
 }
 
+// GetLastBrewDates returns a map of coffeeID -> most recent brew time.
+func (s *SQLiteBrewStorage) GetLastBrewDates() (map[string]time.Time, error) {
+	query := `SELECT coffee_id, MAX(created_at) FROM brews GROUP BY coffee_id`
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query last brew dates: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]time.Time)
+	for rows.Next() {
+		var coffeeID string
+		var ts sql.NullString
+		if err := rows.Scan(&coffeeID, &ts); err != nil {
+			return nil, fmt.Errorf("failed to scan last brew date: %w", err)
+		}
+		result[coffeeID] = parseTime(ts)
+	}
+	return result, rows.Err()
+}
+
+// ToggleBrewLearning flips the is_learning flag for a brew.
+func (s *SQLiteBrewStorage) ToggleBrewLearning(id string) error {
+	_, err := s.db.Exec("UPDATE brews SET is_learning = 1 - COALESCE(is_learning, 0) WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to toggle brew learning: %w", err)
+	}
+	return nil
+}
+
 // Delete removes a brew entry from the database.
 func (s *SQLiteBrewStorage) Delete(id string) error {
 	query := "DELETE FROM brews WHERE id = ?"
@@ -232,12 +271,13 @@ func (s *SQLiteBrewStorage) scanBrew(row *sql.Row) (models.Brew, error) {
 	var brew models.Brew
 	var tastingNotesJSON, tastingTraitsJSON, recipeJSON []byte
 	var createdAtStr sql.NullString
+	var isLearningInt int
 
 	err := row.Scan(
 		&brew.ID, &brew.CoffeeID,
 		&tastingNotesJSON, &tastingTraitsJSON, &brew.Rating, &recipeJSON, &brew.Dripper,
 		&brew.EndTime.Minutes, &brew.EndTime.Seconds,
-		&createdAtStr,
+		&createdAtStr, &isLearningInt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -248,6 +288,7 @@ func (s *SQLiteBrewStorage) scanBrew(row *sql.Row) (models.Brew, error) {
 	}
 
 	brew.CreatedAt = parseTime(createdAtStr)
+	brew.IsLearning = isLearningInt != 0
 
 	if err := json.Unmarshal(tastingNotesJSON, &brew.TastingNotes); err != nil {
 		return models.Brew{}, fmt.Errorf("failed to unmarshal tasting notes: %w", err)
@@ -272,12 +313,13 @@ func (s *SQLiteBrewStorage) scanBrews(rows *sql.Rows) ([]models.Brew, error) {
 		var brew models.Brew
 		var tastingNotesJSON, tastingTraitsJSON, recipeJSON []byte
 		var createdAtStr sql.NullString
+		var isLearningInt int
 
 		err := rows.Scan(
 			&brew.ID, &brew.CoffeeID,
 			&tastingNotesJSON, &tastingTraitsJSON, &brew.Rating, &recipeJSON, &brew.Dripper,
 			&brew.EndTime.Minutes, &brew.EndTime.Seconds,
-			&createdAtStr,
+			&createdAtStr, &isLearningInt,
 		)
 
 		if err != nil {
@@ -285,6 +327,7 @@ func (s *SQLiteBrewStorage) scanBrews(rows *sql.Rows) ([]models.Brew, error) {
 		}
 
 		brew.CreatedAt = parseTime(createdAtStr)
+		brew.IsLearning = isLearningInt != 0
 
 		if err := json.Unmarshal(tastingNotesJSON, &brew.TastingNotes); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal tasting notes: %w", err)
