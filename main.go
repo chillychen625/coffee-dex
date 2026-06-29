@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"go-coffee-log/game"
@@ -8,9 +9,38 @@ import (
 	"go-coffee-log/storage"
 	"log"
 	"os"
+	"strings"
 )
 
+// loadDotEnv reads a .env file and sets any unset environment variables from it.
+func loadDotEnv(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return // no .env file is fine
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+		// Only set if not already in environment
+		if os.Getenv(key) == "" {
+			os.Setenv(key, val)
+		}
+	}
+}
+
 func main() {
+	loadDotEnv(".env")
+
 	dbPath := flag.String("db", "./coffee-dex.db", "SQLite database file path")
 	enableClaude := flag.Bool("enable-claude", true, "Enable LLM-powered Pokemon selection")
 	flag.Parse()
