@@ -119,7 +119,7 @@ After determining types, candidates are filtered:
 
 ### LLM Selection
 
-When Ollama is available, an LLM prompt is constructed:
+When the OpenRouter API is available (`OPENROUTER_API_KEY` set in `.env`), an LLM prompt is constructed:
 
 ```
 Given this coffee:

@@ -3,18 +3,19 @@ project:
   slug: "coffee-dex"
   status: active
   description: |
-    Pokemon-themed coffee logging desktop app. Go backend with MySQL storage,
-    Electron + React frontend. Log coffees and brews, generate Pokemon from
-    tasting profiles, track stats and gym badges.
+    Pokemon-themed coffee logging desktop game. Single Go binary: Ebitengine
+    UI, service layer, SQLite storage, OpenRouter LLM for Pokemon selection.
+    Log coffees and brews, generate Pokemon from tasting profiles, track
+    stats.
 
 focus:
-  area: "Goal 6 & 7 - Widget UX Overhaul"
+  area: null
   sprint: null
-  updated: "2026-02-25"
+  updated: "2026-09-14"
   notes: |
-    Goals 1, 2, 5 complete. Before tackling insights (goal-3), polish
-    the widget UX to take advantage of the tall layout - redesign home
-    screen and convert forms to vertical scrollers.
+    Goals 1, 2, 5, 6, 7, 8 complete. Electron app removed; the app is now
+    an Ebitengine game with SQLite storage. Remaining open goals: goal-3
+    (Coffee Insights Engine) and goal-4 (AI Recommendations & Discovery).
 
 goals:
   - id: goal-1

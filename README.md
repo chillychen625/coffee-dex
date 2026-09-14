@@ -1,6 +1,8 @@
 # CoffeeDex
 
-A coffee tasting journal that transforms your brew experiences into Pokemon. Log your coffees, record multiple brews with tasting notes, and after 5 brews, generate a unique Pokemon based on your aggregated tasting data.
+A coffee tasting journal that transforms your brew experiences into Pokemon. Log your coffees, record brews with tasting notes, and after 5 brews a unique Pokemon is generated from your aggregated tasting data.
+
+Built as a Pokemon-style desktop game (Ebitengine), not a web app.
 
 ## Overview
 
@@ -9,111 +11,71 @@ CoffeeDex separates coffee beans from individual brew sessions:
 - **Coffee**: Bean information (name, origin, roaster, variety, roast level, processing method)
 - **Brew**: Per-tasting evaluation (tasting notes, flavor traits, rating, dripper, brew time)
 
-After logging 5 brews for a coffee, you can generate a Pokemon. The Pokemon type and selection is based on the averaged tasting traits and combined tasting notes from all your brews. Each coffee can only have one Pokemon - no regeneration.
+After logging 5 brews for a coffee, you can generate a Pokemon. Type and selection are based on averaged tasting traits and combined tasting notes across all brews. Each coffee gets exactly one Pokemon - no regeneration.
 
 ## Tech Stack
 
-- **Backend**: Go with MySQL storage
-- **Frontend**: Electron + React + TypeScript
-- **LLM Integration**: Ollama for Pokemon selection reasoning
+- **Language**: Go
+- **UI**: Ebitengine 2D game (scene-based desktop app)
+- **Storage**: SQLite (single file database, created automatically)
+- **LLM**: OpenRouter (claude-sonnet-4-5) for Pokemon selection and descriptions, with rule-based fallback
 
 ## Quick Start
 
-### Prerequisites
-
-- Go 1.21+
-- Node.js 18+
-- MySQL 8.0+
-- Ollama (optional, for LLM-powered Pokemon mapping)
-
-### Database Setup
-
 ```bash
-mysql -u root -p < sql/schema.sql
+# Optional: enable LLM Pokemon selection
+echo "OPENROUTER_API_KEY=your-key" > .env
+
+# Run (database file is created automatically on first launch)
+make run
+# or: go run main.go
 ```
 
-### Start the Backend
+Command-line flags:
+- `-db`: SQLite database path (default: `./coffee-dex.db`)
+- `-enable-claude`: Enable LLM Pokemon selection (default: true; falls back to rules if no API key)
 
-```bash
-go run main.go -storage=mysql -mysql-host=localhost:3306 -mysql-user=root -mysql-password=yourpassword -mysql-db=coffee_log
-```
-
-Backend flags:
-- `-storage`: `memory` or `mysql` (default: memory)
-- `-mysql-host`: MySQL host and port (default: localhost:3306)
-- `-mysql-user`: MySQL username (default: root)
-- `-mysql-password`: MySQL password
-- `-mysql-db`: Database name (default: coffee_log)
-- `-ollama-url`: Ollama URL (default: http://localhost:11434)
-- `-ollama-model`: Ollama model (default: qwen3:4b)
-- `-enable-llm`: Enable LLM mapping (default: true)
-
-### Start the Frontend
-
-```bash
-cd coffee-dex-desktop
-npm install
-npm start
-```
-
-The Electron app will automatically spawn the Go backend when launched.
+A `.env` file in the repo root is loaded automatically at startup.
 
 ## Project Structure
 
 ```
 coffee-dex/
-├── main.go                 # Application entry point and routing
-├── models/                 # Data models
-│   ├── coffee.go          # Coffee bean model
-│   ├── brew.go            # Brew session model
-│   └── pokemon.go         # Pokemon and mapping models
-├── storage/               # Data persistence
-│   ├── interface.go       # Storage interfaces
-│   ├── mysql.go           # MySQL coffee storage
-│   ├── mysql_brew.go      # MySQL brew storage
-│   ├── mysql_pokemon.go   # MySQL Pokemon storage
-│   └── mysql_brewer.go    # MySQL brewer storage
-├── service/               # Business logic
-│   ├── coffee.go          # Coffee CRUD operations
-│   ├── brew.go            # Brew management and aggregation
-│   ├── pokemon.go         # Pokemon generation and mapping
-│   ├── llm.go             # LLM integration for Pokemon selection
-│   ├── pokemon_mapper.go  # Type calculation from traits
-│   └── statistics.go      # Analytics and statistics
-├── handlers/              # HTTP handlers
-│   ├── coffee.go          # Coffee endpoints
-│   ├── brew.go            # Brew endpoints
-│   ├── pokemon.go         # Pokemon endpoints
-│   ├── brewer.go          # Brewer management endpoints
-│   └── statistics.go      # Statistics endpoints
-├── sql/                   # Database schemas
-│   └── schema.sql         # MySQL table definitions
-├── static/                # Static assets
-│   └── pokemon-sprites/   # Pokemon sprite images
-├── coffee-dex-desktop/    # Electron frontend
-│   ├── src/
-│   │   ├── main/          # Electron main process
-│   │   ├── renderer/      # React components
-│   │   ├── services/      # API client
-│   │   ├── types/         # TypeScript definitions
-│   │   └── styles/        # CSS styles
-│   └── package.json
-└── docs/                  # Documentation
+├── main.go                 # Entry point: wiring, .env loading, launches the game
+├── game/                   # Ebitengine UI
+│   ├── game.go             # Game loop and scene switching
+│   ├── scene_menu.go       # Main menu
+│   ├── scene_warehouse.go  # Coffee (bean) management
+│   ├── scene_roastery.go   # Brew logging
+│   ├── scene_pokemon_lab.go# Pokedex / Pokemon detail and compare
+│   ├── scene_trophy_room.go# Stats and history
+│   └── ui.go, textinput.go, autocomplete.go, dateinput.go  # Shared widgets
+├── models/                 # Data models (coffee, brew, brewer, pokemon)
+├── storage/                # SQLite persistence behind interfaces
+│   └── (mysql*.go, memory.go are legacy from the old HTTP server era)
+├── service/                # Business logic
+│   ├── coffee.go           # Coffee CRUD
+│   ├── pokemon.go          # Pokemon generation orchestration
+│   ├── pokemon_mapper.go   # Trait-to-type calculation
+│   ├── llm.go              # OpenRouter integration
+│   └── statistics.go       # Analytics
+├── handlers/               # Legacy HTTP handlers (unused, kept for reference)
+├── cmd/migrate/            # MySQL-to-SQLite migration tool
+├── sql/                    # Legacy MySQL schema and Gen 1 Pokemon data
+└── docs/                   # Architecture and Pokemon mapping notes
 ```
 
 ## User Flow
 
-1. **Add a Coffee**: Enter bean information (name, origin, roaster, variety, roast level, processing method)
-2. **Log Brews**: For each brew session, record tasting notes, flavor traits (0-10 scales), rating, dripper, and brew time
-3. **Track Progress**: View brew count progress (X/5) on the coffee detail page
-4. **Generate Pokemon**: After 5+ brews, click "Generate Pokemon" to create a unique Pokemon based on aggregated brew data
-5. **View Pokedex**: Browse your Pokemon collection with coffee details and LLM analysis
+1. **Add a Coffee** (Warehouse): enter bean information
+2. **Log Brews** (Roastery): record tasting notes, flavor traits (0-10 scales), rating, dripper, and brew time
+3. **Track Progress**: brew count progress (X/5) per coffee
+4. **Generate Pokemon**: after 5+ brews, a Pokemon is chosen based on aggregated brew data, with an LLM-written description
+5. **Pokemon Lab**: browse your collection, view coffee detail, compare Pokemon
 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) - System design and data flow
-- [API Reference](docs/API.md) - REST endpoint documentation
-- [Development](docs/DEVELOPMENT.md) - Setup and development workflow
 - [Pokemon Mapping](docs/POKEMON_MAPPING.md) - How coffee traits map to Pokemon types
 
 ## License

@@ -4,88 +4,78 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## Build Commands
 
-### Backend (Go)
-
 ```bash
-# Run the server with MySQL storage
-go run main.go -storage=mysql -mysql-password=yourpassword
+# Run the app (Ebitengine game, opens a window)
+go run main.go
 
-# Run with in-memory storage (no persistence)
-go run main.go -storage=memory
+# Run with a specific database file (default: ./coffee-dex.db)
+go run main.go -db=/path/to/coffee-dex.db
+
+# Run without LLM Pokemon selection
+go run main.go -enable-claude=false
 
 # Build binary
-go build -o coffee-dex-server .
+make build-server   # outputs bin/coffee-dex
+
+# Tests and lint
+make test
+make lint
 ```
 
-### Frontend (Electron + React)
-
-```bash
-cd coffee-dex-desktop
-
-# Install dependencies
-npm install
-
-# Development mode (hot reload for renderer)
-npm run dev
-
-# Start full Electron app (spawns backend automatically)
-npm start
-
-# Build for production
-npm run build
-npm run dist
-```
-
-### Database
-
-```bash
-# Create/reset database
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS coffee_log"
-mysql -u root -p coffee_log < sql/schema.sql
-```
+There is no HTTP server anymore. `main.go` wires storage and services directly
+into the game and calls `game.Run()`. A `.env` file in the repo root is loaded
+automatically at startup; set `OPENROUTER_API_KEY` there to enable LLM Pokemon
+selection.
 
 ## Architecture
 
-### Layered Backend
-
 ```
-HTTP Handlers (handlers/) -> Services (service/) -> Storage (storage/)
+main.go -> game/ (Ebitengine UI) -> service/ (business logic) -> storage/ (SQLite)
 ```
 
-- **Handlers**: Request parsing, response formatting, route handling
-- **Services**: Business logic, validation, orchestration
-- **Storage**: Database operations via interfaces (MySQL or memory implementations)
+- **game/**: Ebitengine desktop app. Each screen is a scene file
+  (`scene_warehouse.go`, `scene_roastery.go`, `scene_pokemon_lab.go`,
+  `scene_trophy_room.go`, `scene_menu.go`) that handles its own input and
+  drawing; `game.go` owns the scene-switching loop. Shared widgets live in
+  `ui.go`, `textinput.go`, `autocomplete.go`, `dateinput.go`.
+- **service/**: Business logic. Coffee/brew CRUD, statistics, Pokemon
+  generation, and LLM integration.
+- **storage/**: SQLite implementations behind interfaces. MySQL and in-memory
+  implementations also exist here but are legacy from the old HTTP-server era
+  and are not wired into `main.go`.
+- **handlers/**: Legacy HTTP handlers from the removed Electron app. Not
+  referenced by any code; safe to ignore.
 
 ### Data Model
 
 - **Coffee**: Bean information (name, origin, roaster, variety, roast_level, processing_method)
 - **Brew**: Per-tasting data (tasting_notes, tasting_traits, rating, dripper, end_time) linked to Coffee via coffee_id
+- **Brewer**: Dripper/setup presets (with recipes)
 - **CoffeePokemon**: Generated Pokemon (one per coffee, after 5+ brews)
 
 Relationships:
 - Coffee 1:N Brew (one coffee has many brews)
 - Coffee 0..1 CoffeePokemon (one coffee has at most one Pokemon)
 
-### Frontend Structure
-
-Electron app with React renderer:
-- `src/main/` - Electron main process (spawns Go backend)
-- `src/renderer/` - React components and views
-- `src/services/api.ts` - API client for backend communication
-- `src/types/` - TypeScript type definitions
-
 ### Pokemon Generation Flow
 
 1. Coffee must have 5+ brews logged
 2. Brew data is aggregated (averaged traits, combined notes)
-3. Pokemon types calculated from averaged traits
-4. LLM (Ollama) selects best Pokemon from candidates
-5. Falls back to rule-based selection if LLM unavailable
+3. Pokemon types calculated from averaged traits (`service/pokemon_mapper.go`)
+4. LLM (OpenRouter, `anthropic/claude-sonnet-4-5`) selects the best Pokemon
+   from unassigned candidates and writes a lore-based description
+   (`service/llm.go`)
+5. Falls back to rule-based selection if the LLM is unavailable or the API key
+   is not set
 
 ## Key Files
 
-- `main.go` - Entry point, routing, dependency wiring
-- `sql/schema.sql` - Database schema
+- `main.go` - Entry point, flag parsing, dependency wiring, .env loading
+- `game/game.go` - Game loop and scene switching
+- `game/services.go` - Service struct passed from main into the game
 - `service/pokemon_mapper.go` - Trait-to-type calculation logic
-- `service/llm.go` - Ollama integration
-- `coffee-dex-desktop/src/renderer/App.tsx` - Main React component with view routing
+- `service/pokemon.go` - Pokemon generation orchestration
+- `service/llm.go` - OpenRouter integration
+- `storage/storage.go` - Storage interfaces
+- `storage/sqlite_db.go` - SQLite connection and schema setup
+- `cmd/migrate/` - MySQL-to-SQLite migration tool
