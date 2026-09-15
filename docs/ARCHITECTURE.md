@@ -58,6 +58,7 @@ services.
 ### Entities
 
 **Coffee** - Bean information only
+
 ```go
 type Coffee struct {
     ID               string    `json:"id"`
@@ -76,6 +77,7 @@ type Coffee struct {
 ```
 
 **Brew** - Per-tasting evaluation data
+
 ```go
 type Brew struct {
     ID            string        `json:"id"`
@@ -91,6 +93,7 @@ type Brew struct {
 ```
 
 **TastingTraits** - Flavor profile (all 0-10 scale)
+
 ```go
 type TastingTraits struct {
     BerryIntensity        int `json:"berry_intensity"`
@@ -109,6 +112,7 @@ type TastingTraits struct {
 ```
 
 **CoffeePokemon** - Generated Pokemon mapping
+
 ```go
 type CoffeePokemon struct {
     ID                string         `json:"id"`
@@ -118,7 +122,7 @@ type CoffeePokemon struct {
     Nickname          string         `json:"nickname,omitempty"`
     Level             int            `json:"level"`
     MappingConfidence float64        `json:"mapping_confidence"`
-    LLMDescription    string         `json:"llm_description"`
+    Description    string         `json:"description"`
     TraitMapping      []TraitMapping `json:"trait_mapping"`
     CreatedAt         time.Time      `json:"created_at"`
 }
@@ -144,16 +148,13 @@ Brewer (1) ──────────< Recipe (many)
 (`sqlite_*.go`) are the live ones:
 
 Tables:
+
 - `coffees` - Bean information
 - `brews` - Tasting sessions with JSON columns for complex types
 - `coffee_pokemon` - Generated Pokemon with UNIQUE constraint on coffee_id
 - `pokemons` - Static Pokemon reference data (Gen 1, types, stats)
 - `brewers` - Brewing devices
 - `brewer_recipes` - Standalone recipes for brewers
-
-The MySQL (`mysql*.go`) and in-memory (`memory.go`) implementations remain
-from the old HTTP-server era and are not wired into `main.go`. The `handlers/`
-directory is legacy from the same era.
 
 ## Service Layer
 
@@ -166,12 +167,14 @@ rating, and brew count.
 ### PokemonService
 
 Pokemon generation:
+
 ```go
 func (s *PokemonService) MapCoffeeToPokemon(coffeeID string) (*CoffeePokemon, error)
 func (s *PokemonService) CanGeneratePokemon(coffeeID string) (bool, error)
 ```
 
 Flow:
+
 1. Verify coffee exists and has 5+ brews
 2. Verify no existing Pokemon for this coffee
 3. Get aggregated brew data (averaged traits, combined notes)
