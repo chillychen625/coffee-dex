@@ -14,12 +14,13 @@ import (
 )
 
 type MenuScene struct {
-	svc      *Services
-	sel      int
-	tick     int
-	pokemon  []models.CoffeePokemon
-	pokIdx   int
-	totalCof int
+	svc         *Services
+	sel         int
+	tick        int
+	pokemon     []models.CoffeePokemon
+	pokIdx      int
+	totalCof    int
+	coffeeNames map[string]string
 }
 
 var menuItems = []struct {
@@ -47,6 +48,10 @@ func (s *MenuScene) OnEnter(svc *Services) {
 	}
 	if coffees, err := svc.Coffee.ListCoffees(); err == nil {
 		s.totalCof = len(coffees)
+		s.coffeeNames = make(map[string]string, len(coffees))
+		for _, c := range coffees {
+			s.coffeeNames[c.ID] = c.Name
+		}
 	}
 	if s.pokIdx >= len(s.pokemon) {
 		s.pokIdx = 0
@@ -112,7 +117,13 @@ func (s *MenuScene) Draw(screen *ebiten.Image) {
 		// Name + dex number.
 		nameY := spriteY + spriteSize + 5
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("#%03d %s", p.PokemonID, p.PokemonName), 8, nameY)
-		nameY += lineH + 3
+		nameY += lineH + 2
+
+		// Coffee name.
+		if coffeeName := s.coffeeNames[p.CoffeeID]; coffeeName != "" {
+			ebitenutil.DebugPrintAt(screen, truncate(coffeeName, 26), 8, nameY)
+			nameY += lineH + 2
+		}
 
 		// Type badge(s).
 		bx := 8

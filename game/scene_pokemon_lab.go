@@ -30,6 +30,7 @@ const (
 	labSubList    labSubMode = iota
 	labSubDetail
 	labSubCompare
+	labSubBrewHistory
 )
 
 const (
@@ -58,6 +59,8 @@ type PokemonLabScene struct {
 
 	// kept for backwards compat with existing detail flag uses
 	detail bool
+
+	brewHistory BrewHistoryView
 }
 
 func NewPokemonLabScene() *PokemonLabScene { return &PokemonLabScene{} }
@@ -138,9 +141,22 @@ func (s *PokemonLabScene) Update() SceneID {
 	if s.labSub == labSubCompare {
 		return s.updateCompare()
 	}
+	if s.labSub == labSubBrewHistory {
+		if s.brewHistory.Update() {
+			s.labSub = labSubDetail
+		}
+		return ScenePokemonLab
+	}
 	if s.detail {
 		if isKeyJustPressed(ebiten.KeyEscape) || isKeyJustPressed(ebiten.KeyZ) {
 			s.detail = false
+		}
+		if isKeyJustPressed(ebiten.KeyB) && len(s.pokemon) > 0 {
+			p := s.pokemon[s.sel]
+			brews, _ := s.svc.Brew.GetBrewsForCoffee(p.CoffeeID)
+			coffeeName := s.coffeeNames[p.CoffeeID]
+			s.brewHistory.Load(brews, coffeeName)
+			s.labSub = labSubBrewHistory
 		}
 		return ScenePokemonLab
 	}
@@ -202,6 +218,10 @@ func (s *PokemonLabScene) Draw(screen *ebiten.Image) {
 	drawBackground(screen)
 	if s.labSub == labSubCompare {
 		s.drawCompare(screen)
+		return
+	}
+	if s.labSub == labSubBrewHistory {
+		s.brewHistory.Draw(screen)
 		return
 	}
 	if s.detail && len(s.pokemon) > 0 {
@@ -400,7 +420,7 @@ func (s *PokemonLabScene) drawDetail(screen *ebiten.Image, p models.CoffeePokemo
 		wrapText(screen, p.LLMDescription, 10, y, cpl)
 	}
 
-	drawHints(screen, "[Esc/Z] Back to list")
+	drawHints(screen, "[B] Brew history   [Esc/Z] Back to list")
 }
 
 // ── Compare ──────────────────────────────────────────────────────────────────

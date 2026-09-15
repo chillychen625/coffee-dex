@@ -60,5 +60,8 @@ docs/generated/
 
 # API keys and sensitive data
 config/secrets.json
-config/keys.json.claude/worktrees/
+config/keys.json
+
+# Claude Code worktrees and temp output
+.claude/worktrees/
 fix-descriptions

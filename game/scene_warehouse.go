@@ -20,6 +20,7 @@ const (
 	warehouseSubActions    // sub-menu for a selected coffee
 	warehouseSubConfirm    // confirm close-bag
 	warehouseSubGenerating // pokemon generation in progress / result
+	warehouseSubBrewHistory
 )
 
 const (
@@ -69,6 +70,9 @@ type WarehouseScene struct {
 
 	// Confirm close bag
 	confirmSel int // 0=yes, 1=no
+
+	// Brew history
+	brewHistory BrewHistoryView
 
 	// Pokemon generation
 	generating     bool
@@ -169,6 +173,9 @@ func (s *WarehouseScene) loadCoffeeActions() {
 
 func (s *WarehouseScene) actionItems() []string {
 	var items []string
+	if s.brewProgress.Count > 0 {
+		items = append(items, "View Brews")
+	}
 	if c := s.selectedCoffee(); c != nil && !c.IsFinished {
 		items = append(items, "Close Bag")
 	}
@@ -232,6 +239,11 @@ func (s *WarehouseScene) Update() SceneID {
 		return s.updateConfirm()
 	case warehouseSubGenerating:
 		return s.updateGenerating()
+	case warehouseSubBrewHistory:
+		if s.brewHistory.Update() {
+			s.sub = warehouseSubActions
+		}
+		return SceneWarehouse
 	}
 	return SceneWarehouse
 }
@@ -282,6 +294,13 @@ func (s *WarehouseScene) updateActions() SceneID {
 	if isKeyJustPressed(ebiten.KeyEnter) || isKeyJustPressed(ebiten.KeyZ) {
 		chosen := items[s.actionSel]
 		switch chosen {
+		case "View Brews":
+			c := s.selectedCoffee()
+			if c != nil {
+				brews, _ := s.svc.Brew.GetBrewsForCoffee(c.ID)
+				s.brewHistory.Load(brews, c.Name)
+				s.sub = warehouseSubBrewHistory
+			}
 		case "Close Bag":
 			s.confirmSel = 1 // default to "No"
 			s.sub = warehouseSubConfirm
@@ -509,6 +528,8 @@ func (s *WarehouseScene) Draw(screen *ebiten.Image) {
 		s.drawConfirm(screen)
 	case warehouseSubGenerating:
 		s.drawGenerating(screen)
+	case warehouseSubBrewHistory:
+		s.brewHistory.Draw(screen)
 	}
 }
 
