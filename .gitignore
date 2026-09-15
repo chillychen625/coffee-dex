@@ -65,3 +65,5 @@ config/keys.json
 # Claude Code worktrees and temp output
 .claude/worktrees/
 fix-descriptions
+go-coffee-log
+bin/

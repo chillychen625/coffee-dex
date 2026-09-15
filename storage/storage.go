@@ -15,6 +15,28 @@ type CoffeeStorage interface {
 	Delete(id string) error
 }
 
+// BrewerStorage defines the interface for brewer data persistence
+type BrewerStorage interface {
+	SaveBrewer(brewer models.Brewer) error
+	GetBrewerByID(id string) (models.Brewer, error)
+	GetAllBrewers() ([]models.Brewer, error)
+	DeleteBrewer(id string) error
+	UpdateBrewerRecipes(brewerID string, recipes []models.Recipe) error
+}
+
+// PokemonStorage defines the interface for Pokemon data operations
+type PokemonStorage interface {
+	GetAllPokemon() ([]models.Pokemon, error)
+	GetPokemonByID(id int) (*models.Pokemon, error)
+	GetPokemonByType(pokemonType string) ([]models.Pokemon, error)
+	IsPokemonUsed(pokemonID int) (bool, error)
+	ReservePokemon(pokemonID int, coffeeID string) error
+	CreateCoffeePokemon(mapping models.CoffeePokemon) error
+	GetCoffeePokemon(coffeeID string) (*models.CoffeePokemon, error)
+	GetAllCoffeePokemon() ([]models.CoffeePokemon, error)
+	UpdateCoffeePokemonNickname(coffeeID, nickname string) error
+}
+
 // BrewStorage defines the interface for brew data persistence
 type BrewStorage interface {
 	Save(brew models.Brew) error
