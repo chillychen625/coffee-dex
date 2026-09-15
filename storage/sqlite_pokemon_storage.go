@@ -172,7 +172,7 @@ func (s *SQLitePokemonStorage) CreateCoffeePokemon(mapping models.CoffeePokemon)
 	query := `
 		INSERT INTO coffee_pokemon (
 			id, coffee_id, pokemon_id, nickname, level,
-			mapping_confidence, llm_description, trait_mapping, created_at
+			mapping_confidence, description, trait_mapping, created_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`
 
@@ -180,7 +180,7 @@ func (s *SQLitePokemonStorage) CreateCoffeePokemon(mapping models.CoffeePokemon)
 		query,
 		mapping.ID, mapping.CoffeeID, mapping.PokemonID,
 		mapping.Nickname, mapping.Level,
-		mapping.MappingConfidence, mapping.LLMDescription,
+		mapping.MappingConfidence, mapping.Description,
 		traitMappingJSON, formatTime(mapping.CreatedAt),
 	)
 
@@ -195,7 +195,7 @@ func (s *SQLitePokemonStorage) CreateCoffeePokemon(mapping models.CoffeePokemon)
 func (s *SQLitePokemonStorage) GetCoffeePokemon(coffeeID string) (*models.CoffeePokemon, error) {
 	query := `
 		SELECT cp.id, cp.coffee_id, cp.pokemon_id, cp.nickname, cp.level,
-		       cp.mapping_confidence, cp.llm_description, cp.created_at,
+		       cp.mapping_confidence, cp.description, cp.created_at,
 		       p.name, p.type, cp.trait_mapping
 		FROM coffee_pokemon cp
 		JOIN pokemons p ON cp.pokemon_id = p.id
@@ -211,7 +211,7 @@ func (s *SQLitePokemonStorage) GetCoffeePokemon(coffeeID string) (*models.Coffee
 	err := row.Scan(
 		&mapping.ID, &mapping.CoffeeID, &mapping.PokemonID,
 		&mapping.Nickname, &mapping.Level,
-		&mapping.MappingConfidence, &mapping.LLMDescription,
+		&mapping.MappingConfidence, &mapping.Description,
 		&createdAtStr, &mapping.PokemonName, &mapping.PokemonType,
 		&traitMappingJSON,
 	)
@@ -236,7 +236,7 @@ func (s *SQLitePokemonStorage) GetCoffeePokemon(coffeeID string) (*models.Coffee
 func (s *SQLitePokemonStorage) GetAllCoffeePokemon() ([]models.CoffeePokemon, error) {
 	query := `
 		SELECT cp.id, cp.coffee_id, cp.pokemon_id, cp.nickname, cp.level,
-		       cp.mapping_confidence, cp.llm_description, cp.created_at,
+		       cp.mapping_confidence, cp.description, cp.created_at,
 		       p.name, p.type, cp.trait_mapping
 		FROM coffee_pokemon cp
 		JOIN pokemons p ON cp.pokemon_id = p.id
@@ -259,7 +259,7 @@ func (s *SQLitePokemonStorage) GetAllCoffeePokemon() ([]models.CoffeePokemon, er
 		err := rows.Scan(
 			&mapping.ID, &mapping.CoffeeID, &mapping.PokemonID,
 			&mapping.Nickname, &mapping.Level,
-			&mapping.MappingConfidence, &mapping.LLMDescription,
+			&mapping.MappingConfidence, &mapping.Description,
 			&createdAtStr, &mapping.PokemonName, &mapping.PokemonType,
 			&traitMappingJSON,
 		)

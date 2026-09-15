@@ -31,7 +31,7 @@ type CoffeePokemon struct {
 	Nickname          string          `json:"nickname"`
 	Level             int             `json:"level"`
 	MappingConfidence float64         `json:"mapping_confidence"`
-	LLMDescription    string          `json:"llm_description"`
+	Description    	  string          `json:"description"`
 	TraitMapping      []TraitMapping  `json:"trait_mapping"`
 	CreatedAt         time.Time       `json:"created_at"`
 }

@@ -784,8 +784,8 @@ func (s *WarehouseScene) drawGenerating(screen *ebiten.Image) {
 		fillRect(screen, 8, y, textW, 1, colorBorder)
 		y += 6
 
-		if p.LLMDescription != "" {
-			wrapText(screen, p.LLMDescription, 10, y, charsPerLine)
+		if p.Description != "" {
+			wrapText(screen, p.Description, 10, y, charsPerLine)
 		}
 
 		drawHints(screen, "[Enter/Esc] Continue to list")

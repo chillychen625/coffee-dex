@@ -114,7 +114,7 @@ func (s *SQLiteDB) init() error {
 			nickname TEXT,
 			level INTEGER DEFAULT 1,
 			mapping_confidence REAL,
-			llm_description TEXT,
+			description TEXT,
 			trait_mapping TEXT,
 			created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
 			FOREIGN KEY (coffee_id) REFERENCES coffees(id),
@@ -132,6 +132,7 @@ func (s *SQLiteDB) init() error {
 	// Safe migrations — ignore errors if column already exists.
 	s.db.Exec("ALTER TABLE brews ADD COLUMN is_learning INTEGER DEFAULT 0")
 	s.db.Exec("ALTER TABLE coffees ADD COLUMN finished_at TEXT")
+	s.db.Exec("ALTER TABLE coffee_pokemon RENAME COLUMN llm_description TO description")
 
 	return nil
 }

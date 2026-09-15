@@ -414,10 +414,10 @@ func (s *PokemonLabScene) drawDetail(screen *ebiten.Image, p models.CoffeePokemo
 	}
 
 	// ── Pokedex description ───────────────────────────────────────────────────
-	if p.LLMDescription != "" {
+	if p.Description != "" {
 		fillRect(screen, 8, y, textW, 1, colorBorder)
 		y += 5
-		wrapText(screen, p.LLMDescription, 10, y, cpl)
+		wrapText(screen, p.Description, 10, y, cpl)
 	}
 
 	drawHints(screen, "[B] Brew history   [Esc/Z] Back to list")

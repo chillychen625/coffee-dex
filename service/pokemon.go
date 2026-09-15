@@ -129,7 +129,7 @@ func (s *PokemonService) MapCoffeeToPokemon(coffeeID string) (*models.CoffeePoke
 		Nickname:          "",
 		Level:             level,
 		MappingConfidence: confidence,
-		LLMDescription:    description,
+		Description:       description,
 		TraitMapping:      []models.TraitMapping{},
 		CreatedAt:         time.Now(),
 	}
