@@ -42,17 +42,3 @@ type TraitMapping struct {
 	PokemonStat string `json:"pokemon_stat"`
 	Reasoning  string `json:"reasoning"`
 }
-
-// LLMMappingResponse is kept for backward compatibility but no longer used by the new Claude-based pipeline
-
-// PokemonMappingRequest represents a request to generate Pokemon for a coffee
-type PokemonMappingRequest struct {
-	CoffeeID string `json:"coffee_id"`
-}
-
-// PokemonMappingResponse represents the response for Pokemon mapping
-type PokemonMappingResponse struct {
-	Success bool           `json:"success"`
-	Data    CoffeePokemon  `json:"data,omitempty"`
-	Error   string         `json:"error,omitempty"`
-}

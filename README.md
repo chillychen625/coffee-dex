@@ -32,6 +32,7 @@ make run
 ```
 
 Command-line flags:
+
 - `-db`: SQLite database path (default: `./coffee-dex.db`)
 - `-enable-claude`: Enable LLM Pokemon selection (default: true; falls back to rules if no API key)
 
@@ -72,6 +73,8 @@ coffee-dex/
 3. **Track Progress**: brew count progress (X/5) per coffee
 4. **Generate Pokemon**: after 5+ brews, a Pokemon is chosen based on aggregated brew data, with an LLM-written description
 5. **Pokemon Lab**: browse your collection, view coffee detail, compare Pokemon
+
+## all docs by claude probably
 
 ## Documentation
 

@@ -5,7 +5,8 @@ import (
 	"go-coffee-log/models"
 	"go-coffee-log/storage"
 	"log"
-	"math/rand"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,8 +17,17 @@ type PokemonService struct {
 	storage       storage.PokemonStorage
 	coffeeService *CoffeeService
 	brewService   *BrewService
-	claudeService *ClaudeService
 	mapper        *PokemonMapper
+}
+
+type PokemonCandidates struct {
+	CoffeeID      string
+	CoffeeName    string
+	PrimaryType   string
+	SecondaryType string
+	TypeScores    map[string]float64
+	Curated       []models.Pokemon
+	All           []models.Pokemon
 }
 
 // NewPokemonService creates a new Pokemon service
@@ -25,32 +35,30 @@ func NewPokemonService(
 	pokemonStorage storage.PokemonStorage,
 	coffeeService *CoffeeService,
 	brewService *BrewService,
-	claudeService *ClaudeService,
 ) *PokemonService {
 	return &PokemonService{
 		storage:       pokemonStorage,
 		coffeeService: coffeeService,
 		brewService:   brewService,
-		claudeService: claudeService,
 		mapper:        NewPokemonMapper(),
 	}
 }
 
-// MapCoffeeToPokemon maps a coffee to a Pokemon using aggregated brew data
-func (s *PokemonService) MapCoffeeToPokemon(coffeeID string) (*models.CoffeePokemon, error) {
-	// 1. Check if Pokemon already exists
+// GetPokemonCandidates computes the coffee's trait-derived types and returns
+// both the curated (type-matching, best first) and full lists of unassigned
+// Pokemon. The picker decides which list to display; an empty curated list is
+// legitimate (all type matches taken) and should fall back to All there.
+func (s *PokemonService) GetPokemonCandidates(coffeeID string) (*PokemonCandidates, error) {
 	existing, err := s.storage.GetCoffeePokemon(coffeeID)
 	if err == nil && existing != nil {
 		return nil, fmt.Errorf("Pokemon already generated for this coffee - regeneration not allowed")
 	}
 
-	// 2. Get coffee info
 	coffee, err := s.coffeeService.GetCoffee(coffeeID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get coffee: %w", err)
 	}
 
-	// 3. Validate brew count
 	canGenerate, err := s.brewService.CanGeneratePokemon(coffeeID, coffee.IsFinished)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check brew count: %w", err)
@@ -61,21 +69,18 @@ func (s *PokemonService) MapCoffeeToPokemon(coffeeID string) (*models.CoffeePoke
 			models.RequiredBrewsForPokemon-count, count, models.RequiredBrewsForPokemon)
 	}
 
-	// 4. Aggregate brew data
 	aggregated, err := s.brewService.GetAggregatedData(coffeeID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get aggregated brew data: %w", err)
 	}
 
-	// 5. Get type suggestions from mapper (hints for Claude, not constraints)
-	_, _, typeScores := s.mapper.CalculatePokemonTypesFromTraits(
+	primaryType, secondaryType, typeScores := s.mapper.CalculatePokemonTypesFromTraits(
 		aggregated.AverageTraits,
 		coffee.ProcessingMethod,
 		coffee.RoastLevel,
 		aggregated.CombinedNotes,
 	)
 
-	// 6. Get all unassigned Pokemon (uniqueness handled upstream)
 	availablePokemon, err := s.getAvailablePokemon()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get available Pokemon: %w", err)
@@ -84,48 +89,104 @@ func (s *PokemonService) MapCoffeeToPokemon(coffeeID string) (*models.CoffeePoke
 		return nil, fmt.Errorf("all 151 Gen 1 Pokemon are already assigned")
 	}
 
-	log.Printf("Pokemon generation: coffee=%s, %d brews, %d available Pokemon", coffee.Name, aggregated.BrewCount, len(availablePokemon))
-
-	// 7. Ask Claude to pick a Pokemon
-	var selectedPokemon *models.Pokemon
-	var confidence float64
-	var description string
-
-	if s.claudeService != nil {
-		claudeResp, err := s.claudeService.SelectPokemon(coffee, aggregated.AverageTraits, aggregated.CombinedNotes, typeScores, availablePokemon)
-		if err != nil {
-			log.Printf("Claude selection failed, using type-based fallback: %v", err)
-			selectedPokemon, confidence, description = s.fallbackSelect(aggregated.AverageTraits, typeScores, availablePokemon)
-		} else {
-			// Find the Pokemon by ID from Claude's response
-			for i := range availablePokemon {
-				if availablePokemon[i].ID == claudeResp.PokemonID {
-					selectedPokemon = &availablePokemon[i]
-					break
-				}
-			}
-			if selectedPokemon == nil {
-				log.Printf("Claude returned unknown Pokemon ID %d, using fallback", claudeResp.PokemonID)
-				selectedPokemon, confidence, description = s.fallbackSelect(aggregated.AverageTraits, typeScores, availablePokemon)
-			} else {
-				confidence = claudeResp.Confidence
-				description = claudeResp.Description
-			}
+	curated := make([]models.Pokemon, 0, len(availablePokemon))
+	for _, pkmn := range availablePokemon {
+		if typeMatches(pkmn.Type, primaryType) || typeMatches(pkmn.Type, secondaryType) {
+			curated = append(curated, pkmn)
 		}
-	} else {
-		log.Printf("No Claude service available, using type-based fallback")
-		selectedPokemon, confidence, description = s.fallbackSelect(aggregated.AverageTraits, typeScores, availablePokemon)
 	}
 
-	// 8. Build and save the mapping
+	// Best matches first; the ID tiebreaker keeps the order stable.
+	sort.SliceStable(curated, func(i, j int) bool {
+		si, sj := matchScore(curated[i], typeScores), matchScore(curated[j], typeScores)
+		if si != sj {
+			return si > sj
+		}
+		return curated[i].ID < curated[j].ID
+	})
+
+	return &PokemonCandidates{
+		CoffeeID:      coffeeID,
+		CoffeeName:    coffee.Name,
+		PrimaryType:   primaryType,
+		SecondaryType: secondaryType,
+		TypeScores:    typeScores,
+		Curated:       curated,
+		All:           availablePokemon,
+	}, nil
+}
+
+// Match returns the best trait-derived type score for p (0 if none of its
+// types scored), so the picker UI can display fit without duplicating the
+// scoring rules.
+func (c *PokemonCandidates) Match(p models.Pokemon) float64 {
+	return matchScore(p, c.TypeScores)
+}
+
+// CreateManualMapping persists a user-chosen Pokemon and hand-written
+// description for a coffee. Any unassigned Pokemon is allowed; the mapping
+// confidence records how well the choice matched the coffee's trait-derived
+// types, so browse-all picks honestly report a lower match.
+func (s *PokemonService) CreateManualMapping(coffeeID string, pokemonID int, description string) (*models.CoffeePokemon, error) {
+	existing, _ := s.storage.GetCoffeePokemon(coffeeID)
+	if existing != nil {
+		return nil, fmt.Errorf("pokemon already mapped")
+	}
+
+	coffee, err := s.coffeeService.GetCoffee(coffeeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get coffee: %w", err)
+	}
+
+	// Re-check eligibility: brews may have changed since the picker opened.
+	canGenerate, err := s.brewService.CanGeneratePokemon(coffeeID, coffee.IsFinished)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check brew count: %w", err)
+	}
+	if !canGenerate {
+		return nil, fmt.Errorf("this coffee no longer qualifies for a Pokemon")
+	}
+
+	aggregated, err := s.brewService.GetAggregatedData(coffeeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get aggregated brew data: %w", err)
+	}
+
+	// The chosen Pokemon must still be unassigned; otherwise the DB's
+	// UNIQUE(pokemon_id) constraint would surface as a raw SQL error.
+	available, err := s.getAvailablePokemon()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get available Pokemon: %w", err)
+	}
+	var pkmn *models.Pokemon
+	for i := range available {
+		if available[i].ID == pokemonID {
+			pkmn = &available[i]
+			break
+		}
+	}
+	if pkmn == nil {
+		return nil, fmt.Errorf("that Pokemon is already assigned to another coffee")
+	}
+
+	_, _, typeScores := s.mapper.CalculatePokemonTypesFromTraits(
+		aggregated.AverageTraits,
+		coffee.ProcessingMethod,
+		coffee.RoastLevel,
+		aggregated.CombinedNotes,
+	)
+
 	level := calculateLevel(int(aggregated.AverageRating + 0.5))
+	// Clamped: out-of-type picks floor at 35%, strong matches stay below 100%
+	// (per-rule score normalization is only roughly comparable across types).
+	confidence := min(max(matchScore(*pkmn, typeScores), 0.35), 0.95)
 
 	mapping := &models.CoffeePokemon{
 		ID:                uuid.New().String(),
-		CoffeeID:          coffee.ID,
-		PokemonID:         selectedPokemon.ID,
-		PokemonName:       selectedPokemon.Name,
-		PokemonType:       selectedPokemon.Type,
+		CoffeeID:          coffeeID,
+		PokemonID:         pokemonID,
+		PokemonName:       pkmn.Name,
+		PokemonType:       pkmn.Type,
 		Nickname:          "",
 		Level:             level,
 		MappingConfidence: confidence,
@@ -138,7 +199,7 @@ func (s *PokemonService) MapCoffeeToPokemon(coffeeID string) (*models.CoffeePoke
 		return nil, fmt.Errorf("failed to create Pokemon mapping: %w", err)
 	}
 
-	log.Printf("Pokemon assigned: %s (#%d) for coffee %s (confidence: %.0f%%)", selectedPokemon.Name, selectedPokemon.ID, coffee.Name, confidence*100)
+	log.Printf("Pokemon assigned: %s (#%d) for coffee %s (confidence: %.0f%%)", pkmn.Name, pkmn.ID, coffee.Name, confidence*100)
 	return mapping, nil
 }
 
@@ -163,97 +224,29 @@ func (s *PokemonService) getAvailablePokemon() ([]models.Pokemon, error) {
 	return available, nil
 }
 
-// fallbackSelect picks a Pokemon based on type scores when Claude isn't available
-func (s *PokemonService) fallbackSelect(traits models.TastingTraits, typeScores map[string]float64, available []models.Pokemon) (*models.Pokemon, float64, string) {
-	// Find the best type match
-	bestType := "Normal"
-	bestScore := 0.0
-	for t, score := range typeScores {
-		if score > bestScore {
-			bestType = t
-			bestScore = score
-		}
+func typeMatches(pokemonType, target string) bool {
+	if target == "" {
+		return false
 	}
-
-	// Collect all available Pokemon of the best type, then pick one at random
-	matches := make([]int, 0)
-	for i := range available {
-		if containsType(available[i].Type, bestType) {
-			matches = append(matches, i)
-		}
-	}
-	if len(matches) > 0 {
-		pick := matches[rand.Intn(len(matches))]
-		desc := fmt.Sprintf("A %s-type Pokemon matched to this coffee's flavor profile. %s's characteristics align with the %s notes in your brews.",
-			available[pick].Type, available[pick].Name, bestType)
-		return &available[pick], bestScore * 0.8, desc
-	}
-
-	// No type match — pick a random available Pokemon (avoids pokedex creep)
-	if len(available) > 0 {
-		pick := rand.Intn(len(available))
-		return &available[pick], 0.5, fmt.Sprintf("%s was matched to this coffee's unique flavor profile.", available[pick].Name)
-	}
-
-	// Should never reach here since we check upstream
-	return &models.Pokemon{ID: 1, Name: "Bulbasaur", Type: "Grass/Poison"}, 0.3, "A trusty companion for your coffee journey."
-}
-
-// containsType checks if a Pokemon's type string contains a specific type
-func containsType(pokemonType, targetType string) bool {
-	for _, t := range splitTypes(pokemonType) {
-		if t == targetType {
+	for _, t := range strings.Split(pokemonType, "/") {
+		if strings.EqualFold(strings.TrimSpace(t), target) {
 			return true
 		}
 	}
 	return false
 }
 
-// splitTypes splits a type string like "Fire/Water" into individual types
-func splitTypes(typeStr string) []string {
-	parts := make([]string, 0, 2)
-	for _, p := range split(typeStr, "/") {
-		trimmed := trim(p)
-		if trimmed != "" {
-			parts = append(parts, trimmed)
+// matchScore returns the best trait-derived type score for a Pokemon
+// across its types (0 if none of them scored).
+func matchScore(p models.Pokemon, typeScores map[string]float64) float64 {
+	best := 0.0
+	for _, t := range strings.Split(p.Type, "/") {
+		key := strings.ToLower(strings.TrimSpace(t))
+		if v, ok := typeScores[key]; ok && v > best {
+			best = v
 		}
 	}
-	return parts
-}
-
-// split is a simple string split helper
-func split(s, sep string) []string {
-	result := make([]string, 0)
-	for {
-		i := indexOf(s, sep)
-		if i < 0 {
-			result = append(result, s)
-			break
-		}
-		result = append(result, s[:i])
-		s = s[i+len(sep):]
-	}
-	return result
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
-}
-
-func trim(s string) string {
-	start, end := 0, len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
-		end--
-	}
-	return s[start:end]
+	return best
 }
 
 // calculateLevel calculates Pokemon level from coffee rating

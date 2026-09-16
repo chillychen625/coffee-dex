@@ -17,9 +17,11 @@ type warehouseSub int
 const (
 	warehouseSubList warehouseSub = iota
 	warehouseSubAdd
-	warehouseSubActions    // sub-menu for a selected coffee
-	warehouseSubConfirm    // confirm close-bag
-	warehouseSubGenerating // pokemon generation in progress / result
+	warehouseSubActions   // sub-menu for a selected coffee
+	warehouseSubConfirm   // confirm close-bag
+	warehouseSubPicker    // carousel of unassigned Pokemon
+	warehouseSubDescribe  // write the description for the chosen Pokemon
+	warehouseSubEncounter // encounter reveal / shared error screen
 	warehouseSubBrewHistory
 )
 
@@ -37,20 +39,15 @@ const (
 var roastLevels = []string{"light", "medium", "dark", "light medium", "medium dark", "unclear", ""}
 var processingMethods = []string{"washed", "natural", "honey", "coferment", "experimental", ""}
 
-type genResult struct {
-	pokemon *models.CoffeePokemon
-	err     error
-}
-
 type WarehouseScene struct {
 	svc *Services
 	sub warehouseSub
 
 	// List (sel=0 → Add Coffee; sel=i+1 → coffees[i])
-	sel            int
-	coffees        []models.Coffee // open bags only
-	coffeeScroll   int
-	lastBrewDates  map[string]time.Time
+	sel           int
+	coffees       []models.Coffee // open bags only
+	coffeeScroll  int
+	lastBrewDates map[string]time.Time
 
 	// Add form
 	name          TextInput
@@ -74,14 +71,16 @@ type WarehouseScene struct {
 	// Brew history
 	brewHistory BrewHistoryView
 
-	// Pokemon generation
-	generating     bool
-	genChan        chan genResult
-	genMsg         string
-	genPokemon     *models.CoffeePokemon
-	genCoffeeName  string
+	// Pokemon picking
+	picker   PokemonPickerView
+	describe DescribeView
 
-	// Encounter animation phases (active when !generating && genPokemon != nil)
+	// Encounter result / shared error screen (genMsg != "" → error)
+	genMsg        string
+	genPokemon    *models.CoffeePokemon
+	genCoffeeName string
+
+	// Encounter animation phases (active when genPokemon != nil)
 	// 0=white-flash, 1=text-type, 2=sprite-slide, 3=result
 	encTick  int
 	encPhase int
@@ -180,7 +179,7 @@ func (s *WarehouseScene) actionItems() []string {
 		items = append(items, "Close Bag")
 	}
 	if s.brewProgress.CanGeneratePokemon && !s.hasPokemon {
-		items = append(items, "Generate Pokemon  [AI]")
+		items = append(items, "Choose Pokemon")
 	}
 	items = append(items, "Back")
 	return items
@@ -237,8 +236,12 @@ func (s *WarehouseScene) Update() SceneID {
 		return s.updateActions()
 	case warehouseSubConfirm:
 		return s.updateConfirm()
-	case warehouseSubGenerating:
-		return s.updateGenerating()
+	case warehouseSubPicker:
+		return s.updatePicker()
+	case warehouseSubDescribe:
+		return s.updateDescribe()
+	case warehouseSubEncounter:
+		return s.updateEncounter()
 	case warehouseSubBrewHistory:
 		if s.brewHistory.Update() {
 			s.sub = warehouseSubActions
@@ -306,8 +309,8 @@ func (s *WarehouseScene) updateActions() SceneID {
 			s.sub = warehouseSubConfirm
 		case "Back":
 			s.sub = warehouseSubList
-		default: // Generate Pokemon
-			s.startGeneration()
+		default: // Choose Pokemon
+			s.startPicker()
 		}
 	}
 	return SceneWarehouse
@@ -346,7 +349,8 @@ func (s *WarehouseScene) doCloseBag() {
 	_, err := s.svc.Coffee.MarkAsFinished(c.ID)
 	if err != nil {
 		s.genMsg = "Error: " + err.Error()
-		s.sub = warehouseSubGenerating // reuse result screen
+		s.genPokemon = nil
+		s.sub = warehouseSubEncounter // reuse shared error screen
 		return
 	}
 	s.loadCoffees()
@@ -354,48 +358,72 @@ func (s *WarehouseScene) doCloseBag() {
 	s.sub = warehouseSubList
 }
 
-func (s *WarehouseScene) startGeneration() {
+// startPicker loads candidates for the selected coffee and opens the
+// carousel. Everything is local SQLite, so no goroutine is needed; errors
+// go to the shared error screen.
+func (s *WarehouseScene) startPicker() {
 	c := s.selectedCoffee()
 	if c == nil {
 		return
 	}
-	s.generating = true
-	s.genMsg = ""
-	s.genPokemon = nil
-	s.genCoffeeName = c.Name
-	s.encTick = 0
-	s.encPhase = 0
-	s.genChan = make(chan genResult, 1)
-	coffeeID := c.ID
-	go func() {
-		p, err := s.svc.Pokemon.MapCoffeeToPokemon(coffeeID)
-		s.genChan <- genResult{pokemon: p, err: err}
-	}()
-	s.sub = warehouseSubGenerating
+	cands, err := s.svc.Pokemon.GetPokemonCandidates(c.ID)
+	if err != nil {
+		s.genMsg = err.Error()
+		s.genPokemon = nil
+		s.sub = warehouseSubEncounter
+		return
+	}
+	s.picker.Load(cands)
+	s.sub = warehouseSubPicker
 }
 
-func (s *WarehouseScene) updateGenerating() SceneID {
-	s.encTick++
-
-	// Poll goroutine while loading.
-	if s.generating {
-		select {
-		case result := <-s.genChan:
-			s.generating = false
-			if result.err != nil {
-				s.genMsg = result.err.Error()
-			} else {
-				s.genPokemon = result.pokemon
-				s.genMsg = ""
-				s.loadCoffees()
-				// Reset tick to drive the encounter animation.
-				s.encTick = 0
-				s.encPhase = 0
-			}
-		default:
+func (s *WarehouseScene) updatePicker() SceneID {
+	switch s.picker.Update() {
+	case pickerConfirmed:
+		c := s.selectedCoffee()
+		if c == nil {
+			s.sub = warehouseSubActions
+			return SceneWarehouse
 		}
-		return SceneWarehouse
+		if err := s.describe.Load(s.svc, c.ID, c.Name, s.picker.Current()); err != nil {
+			s.genMsg = err.Error()
+			s.genPokemon = nil
+			s.sub = warehouseSubEncounter
+			return SceneWarehouse
+		}
+		s.sub = warehouseSubDescribe
+	case pickerCanceled:
+		s.sub = warehouseSubActions
 	}
+	return SceneWarehouse
+}
+
+func (s *WarehouseScene) updateDescribe() SceneID {
+	switch s.describe.Update() {
+	case describeBack:
+		s.sub = warehouseSubPicker
+	case describeSubmit:
+		// Use the IDs captured at Load: after mapping, the coffee leaves
+		// the warehouse list and selectedCoffee() may point elsewhere.
+		mapping, err := s.svc.Pokemon.CreateManualMapping(
+			s.describe.coffeeID, s.describe.pokemon.ID, s.describe.Description())
+		if err != nil {
+			s.describe.SetMsg(err.Error())
+			return SceneWarehouse
+		}
+		s.loadCoffees()
+		s.genPokemon = mapping
+		s.genCoffeeName = s.describe.coffeeName
+		s.genMsg = ""
+		s.encTick = 0
+		s.encPhase = 0
+		s.sub = warehouseSubEncounter
+	}
+	return SceneWarehouse
+}
+
+func (s *WarehouseScene) updateEncounter() SceneID {
+	s.encTick++
 
 	// Error state: any key exits.
 	if s.genMsg != "" {
@@ -407,11 +435,18 @@ func (s *WarehouseScene) updateGenerating() SceneID {
 		return SceneWarehouse
 	}
 
+	// Guard: encounter requires a result.
+	if s.genPokemon == nil {
+		s.sub = warehouseSubList
+		s.sel = 0
+		return SceneWarehouse
+	}
+
 	// Encounter animation state machine.
 	p := s.genPokemon
 	const (
-		flashDur  = 24
-		slideLen  = 40
+		flashDur = 24
+		slideLen = 40
 	)
 	switch s.encPhase {
 	case 0: // white flash fades out
@@ -526,8 +561,12 @@ func (s *WarehouseScene) Draw(screen *ebiten.Image) {
 		s.drawActions(screen)
 	case warehouseSubConfirm:
 		s.drawConfirm(screen)
-	case warehouseSubGenerating:
-		s.drawGenerating(screen)
+	case warehouseSubPicker:
+		s.picker.Draw(screen)
+	case warehouseSubDescribe:
+		s.describe.Draw(screen)
+	case warehouseSubEncounter:
+		s.drawEncounter(screen)
 	case warehouseSubBrewHistory:
 		s.brewHistory.Draw(screen)
 	}
@@ -624,7 +663,7 @@ func (s *WarehouseScene) drawActions(screen *ebiten.Image) {
 	if s.hasPokemon {
 		brewLine += "  ·  Has Pokemon"
 	} else if bp.CanGeneratePokemon {
-		brewLine += "  ·  Ready to generate!"
+		brewLine += "  ·  Ready to choose a Pokemon!"
 	} else {
 		brewLine += fmt.Sprintf("  ·  Need %d more", bp.Required-bp.Count)
 	}
@@ -677,35 +716,22 @@ func (s *WarehouseScene) drawConfirm(screen *ebiten.Image) {
 	drawHints(screen, "[←→] Select   [Enter/Y] Confirm   [N/Esc] Cancel")
 }
 
-func (s *WarehouseScene) drawGenerating(screen *ebiten.Image) {
-	// ── Still running ─────────────────────────────────────────────────────────
-	if s.generating {
-		drawBackground(screen)
-		drawHeader(screen, "Bean Warehouse — Generate Pokemon")
-		y := contentY + 20
-		ebitenutil.DebugPrintAt(screen, "Generating Pokemon for:", 10, y)
-		y += lineH + 4
-		ebitenutil.DebugPrintAt(screen, truncate(s.genCoffeeName, 60), 10, y)
-		y += lineH + 16
-		dots := ""
-		for i := 0; i < (s.encTick/15)%4; i++ {
-			dots += "."
-		}
-		ebitenutil.DebugPrintAt(screen, "Consulting the AI"+dots, 10, y)
-		y += lineH + 4
-		ebitenutil.DebugPrintAt(screen, "(this may take a moment)", 10, y)
-		return
-	}
-
+func (s *WarehouseScene) drawEncounter(screen *ebiten.Image) {
 	// ── Error ─────────────────────────────────────────────────────────────────
 	if s.genMsg != "" {
 		drawBackground(screen)
 		drawHeader(screen, "Bean Warehouse — Error")
 		y := contentY + 20
-		ebitenutil.DebugPrintAt(screen, "Could not generate Pokemon:", 10, y)
+		ebitenutil.DebugPrintAt(screen, "Could not choose Pokemon:", 10, y)
 		y += lineH + 8
 		wrapText(screen, s.genMsg, 10, y, (InternalWidth-20)/6)
 		drawHints(screen, "[Enter/Esc] Back")
+		return
+	}
+
+	if s.genPokemon == nil {
+		drawBackground(screen)
+		drawHeader(screen, "Bean Warehouse")
 		return
 	}
 
