@@ -55,9 +55,10 @@ func (a *AutoComplete) Update(focused bool) bool {
 		if isKeyJustPressed(ebiten.KeyArrowDown) {
 			if a.matchSel < len(a.matches)-1 {
 				a.matchSel++
-				return false
+				return true
 			}
-			return true
+			a.DropOpen = false
+			return false
 		}
 		if isKeyJustPressed(ebiten.KeyArrowUp) {
 			if a.matchSel > 0 {

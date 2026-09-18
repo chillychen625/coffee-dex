@@ -290,7 +290,7 @@ func (s *RoasteryScene) updateLogBrew() SceneID {
 	}
 
 	// Navigation
-	if isKeyActive(ebiten.KeyArrowDown) && s.brewFocus < brewFieldSubmit {
+	if isKeyActive(ebiten.KeyArrowDown) && s.brewFocus < brewFieldSubmit && (s.brewFocus != brewFieldDripper || s.dripper.DropOpen == false) {
 		s.brewFocus++
 		s.scrollBrewToFocus()
 	}
