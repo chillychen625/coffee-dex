@@ -21,16 +21,14 @@ type AutoComplete struct {
 
 func (a *AutoComplete) SetOptions(opts []string) {
 	a.options = opts
-	if a.Value != "" {
-		a.filterMatches()
-	}
 }
 
 func (a *AutoComplete) filterMatches() {
 	lower := strings.ToLower(a.Value)
 	a.matches = nil
 	if lower == "" {
-		a.DropOpen = false
+		a.DropOpen = true
+		a.matches = a.options
 		return
 	}
 	for _, opt := range a.options {
@@ -57,6 +55,7 @@ func (a *AutoComplete) Update(focused bool) bool {
 		if isKeyJustPressed(ebiten.KeyArrowDown) {
 			if a.matchSel < len(a.matches)-1 {
 				a.matchSel++
+				return false
 			}
 			return true
 		}
@@ -84,6 +83,9 @@ func (a *AutoComplete) Update(focused bool) bool {
 
 	prev := a.Value
 	a.TextInput.Update(focused)
+	if a.Value == "" {
+		a.filterMatches()
+	}
 	if a.Value != prev {
 		a.filterMatches()
 	}

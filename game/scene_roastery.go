@@ -6,6 +6,9 @@ import (
 	"strconv"
 
 	"go-coffee-log/models"
+
+	"slices"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
@@ -103,16 +106,20 @@ func (s *RoasteryScene) loadDrippers() {
 		return
 	}
 	dripSet := map[string]bool{}
+	// find all drippers from brews
 	for _, b := range brews {
 		if b.Dripper != "" {
 			dripSet[b.Dripper] = true
 		}
 	}
+	// make a drippers slice of strings that contains all drippers
 	drippers := make([]string, 0, len(dripSet))
 	for k := range dripSet {
 		drippers = append(drippers, k)
 	}
 	sort.Strings(drippers)
+	// ideally this dedups the drippers since there are strangely duplicates. we could also do this above and only add them if we havent seen them.
+	drippers = slices.Compact(drippers)
 	s.dripper.SetOptions(drippers)
 }
 
