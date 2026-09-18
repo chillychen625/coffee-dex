@@ -1,7 +1,7 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"go-coffee-log/game"
 	"go-coffee-log/service"
 	"go-coffee-log/storage"
@@ -9,35 +9,33 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
 
-	dbPath := flag.String("db", "./coffee-dex.db", "SQLite database file path")
-	flag.Parse()
-
-	// Open SQLite database (creates file if it doesn't exist)
-	sqliteDB, err := storage.NewSQLiteDB(*dbPath)
+	// Connect to Postgres (Neon). Reads DATABASE_URL from the environment
+	// or a .env file next to the binary, and creates tables if missing.
+	pgDB, err := storage.NewPGDB(ctx)
 	if err != nil {
-		log.Fatalf("Failed to open database %s: %v", *dbPath, err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer sqliteDB.Close()
-	db := sqliteDB.DB()
+	defer pgDB.Close()
 
 	// Storage layer
-	coffeeStore := storage.NewSQLiteCoffeeStorage(db)
-	brewStore := storage.NewSQLiteBrewStorage(db)
-	brewerStore := storage.NewSQLiteBrewerStorage(db)
-	pokemonStore := storage.NewSQLitePokemonStorage(db)
+	coffeeStore := storage.NewPgCoffeeStorage(pgDB.Pool())
+	brewStore := storage.NewPgBrewStorage(pgDB.Pool())
+	brewerStore := storage.NewPgBrewerStorage(pgDB.Pool())
+	pokemonStore := storage.NewPgPokemonStorage(pgDB.Pool())
 
 	// Service layer
-	coffeeService := service.NewCoffeeService(coffeeStore)
-	brewService := service.NewBrewService(brewStore, coffeeStore)
+	coffeeService := service.NewCoffeeService(ctx, coffeeStore)
+	brewService := service.NewBrewService(ctx, brewStore, coffeeStore)
 
-	pokemonService := service.NewPokemonService(pokemonStore, coffeeService, brewService)
+	pokemonService := service.NewPokemonService(ctx, pokemonStore, coffeeService, brewService)
 	if err := pokemonService.InitializePokemonData(); err != nil {
 		log.Printf("Warning: failed to initialize Pokemon data: %v", err)
 	}
 
-	brewerService := service.NewBrewerService(brewerStore)
-	statisticsService := service.NewStatisticsService(coffeeStore, brewStore, pokemonStore)
+	brewerService := service.NewBrewerService(ctx, brewerStore)
+	statisticsService := service.NewStatisticsService(ctx, coffeeStore, brewStore, pokemonStore)
 
 	// Launch game
 	svc := &game.Services{

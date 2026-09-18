@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"go-coffee-log/models"
 	"go-coffee-log/storage"
@@ -11,13 +12,15 @@ import (
 
 // BrewService handles business logic for brew operations
 type BrewService struct {
+	ctx           context.Context
 	storage       storage.BrewStorage
 	coffeeStorage storage.CoffeeStorage
 }
 
 // NewBrewService creates a new brew service
-func NewBrewService(brewStorage storage.BrewStorage, coffeeStorage storage.CoffeeStorage) *BrewService {
+func NewBrewService(ctx context.Context, brewStorage storage.BrewStorage, coffeeStorage storage.CoffeeStorage) *BrewService {
 	return &BrewService{
+		ctx:           ctx,
 		storage:       brewStorage,
 		coffeeStorage: coffeeStorage,
 	}
@@ -26,7 +29,7 @@ func NewBrewService(brewStorage storage.BrewStorage, coffeeStorage storage.Coffe
 // CreateBrew creates a new brew entry for a coffee
 func (s *BrewService) CreateBrew(brew models.Brew) (models.Brew, error) {
 	// Verify coffee exists and get roast date
-	coffee, err := s.coffeeStorage.GetByID(brew.CoffeeID)
+	coffee, err := s.coffeeStorage.GetByID(s.ctx, brew.CoffeeID)
 	if err != nil {
 		return models.Brew{}, fmt.Errorf("coffee not found: %w", err)
 	}
@@ -41,7 +44,7 @@ func (s *BrewService) CreateBrew(brew models.Brew) (models.Brew, error) {
 		return models.Brew{}, err
 	}
 
-	if err := s.storage.Save(brew); err != nil {
+	if err := s.storage.Save(s.ctx, brew); err != nil {
 		return models.Brew{}, err
 	}
 
@@ -50,14 +53,14 @@ func (s *BrewService) CreateBrew(brew models.Brew) (models.Brew, error) {
 
 // GetBrew retrieves a brew by ID
 func (s *BrewService) GetBrew(id string) (models.Brew, error) {
-	brew, err := s.storage.GetByID(id)
+	brew, err := s.storage.GetByID(s.ctx, id)
 	if err != nil {
 		return brew, err
 	}
 
 	// Populate days off roast if not already set
 	if brew.DaysOffRoast == 0 {
-		coffee, err := s.coffeeStorage.GetByID(brew.CoffeeID)
+		coffee, err := s.coffeeStorage.GetByID(s.ctx, brew.CoffeeID)
 		if err == nil {
 			brew.DaysOffRoast = coffee.DaysOffRoastAt(brew.CreatedAt)
 		}
@@ -68,13 +71,13 @@ func (s *BrewService) GetBrew(id string) (models.Brew, error) {
 
 // GetBrewsForCoffee retrieves all brews for a specific coffee
 func (s *BrewService) GetBrewsForCoffee(coffeeID string) ([]models.Brew, error) {
-	brews, err := s.storage.GetByCoffeeID(coffeeID)
+	brews, err := s.storage.GetByCoffeeID(s.ctx, coffeeID)
 	if err != nil {
 		return nil, err
 	}
 
 	// Get coffee to calculate days off roast
-	coffee, err := s.coffeeStorage.GetByID(coffeeID)
+	coffee, err := s.coffeeStorage.GetByID(s.ctx, coffeeID)
 	if err != nil {
 		return brews, nil // Return brews without days_off_roast if coffee lookup fails
 	}
@@ -91,32 +94,32 @@ func (s *BrewService) GetBrewsForCoffee(coffeeID string) ([]models.Brew, error) 
 
 // GetBrewCount returns the number of brews for a specific coffee
 func (s *BrewService) GetBrewCount(coffeeID string) (int, error) {
-	return s.storage.GetBrewCount(coffeeID)
+	return s.storage.GetBrewCount(s.ctx, coffeeID)
 }
 
 // ListBrews retrieves all brews
 func (s *BrewService) ListBrews() ([]models.Brew, error) {
-	return s.storage.GetAll()
+	return s.storage.GetAll(s.ctx)
 }
 
 // GetRecentBrews retrieves the most recent brews
 func (s *BrewService) GetRecentBrews(limit int) ([]models.Brew, error) {
-	return s.storage.GetRecent(limit)
+	return s.storage.GetRecent(s.ctx, limit)
 }
 
 // GetRecentBrewsWithCoffee retrieves the most recent brews with coffee name and origin
 func (s *BrewService) GetRecentBrewsWithCoffee(limit int) ([]models.BrewWithCoffee, error) {
-	return s.storage.GetRecentWithCoffee(limit)
+	return s.storage.GetRecentWithCoffee(s.ctx, limit)
 }
 
 // DeleteBrew removes a brew entry
 func (s *BrewService) DeleteBrew(id string) error {
-	return s.storage.Delete(id)
+	return s.storage.Delete(s.ctx, id)
 }
 
 // CanGeneratePokemon checks if a coffee has enough brews to generate a Pokemon
 func (s *BrewService) CanGeneratePokemon(coffeeID string, isFinished bool) (bool, error) {
-	count, err := s.storage.GetBrewCount(coffeeID)
+	count, err := s.storage.GetBrewCount(s.ctx, coffeeID)
 	if err != nil {
 		return false, err
 	}
@@ -129,7 +132,7 @@ func (s *BrewService) CanGeneratePokemon(coffeeID string, isFinished bool) (bool
 
 // GetBrewProgress returns the brew progress for Pokemon generation
 func (s *BrewService) GetBrewProgress(coffeeID string, hasPokemon bool, isFinished bool) (models.BrewProgress, error) {
-	count, err := s.storage.GetBrewCount(coffeeID)
+	count, err := s.storage.GetBrewCount(s.ctx, coffeeID)
 	if err != nil {
 		return models.BrewProgress{}, err
 	}
@@ -153,17 +156,17 @@ func (s *BrewService) GetBrewProgress(coffeeID string, hasPokemon bool, isFinish
 
 // GetLastBrewDates returns a map of coffeeID -> most recent brew time.
 func (s *BrewService) GetLastBrewDates() (map[string]time.Time, error) {
-	return s.storage.GetLastBrewDates()
+	return s.storage.GetLastBrewDates(s.ctx)
 }
 
 // ToggleBrewLearning flips the is_learning flag on a brew.
 func (s *BrewService) ToggleBrewLearning(id string) error {
-	return s.storage.ToggleBrewLearning(id)
+	return s.storage.ToggleBrewLearning(s.ctx, id)
 }
 
 // GetAggregatedData computes aggregated data from all brews of a coffee
 func (s *BrewService) GetAggregatedData(coffeeID string) (*models.AggregatedBrewData, error) {
-	allBrews, err := s.storage.GetByCoffeeID(coffeeID)
+	allBrews, err := s.storage.GetByCoffeeID(s.ctx, coffeeID)
 	if err != nil {
 		return nil, err
 	}

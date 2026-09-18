@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"go-coffee-log/models"
 	"go-coffee-log/storage"
@@ -14,6 +15,7 @@ import (
 
 // PokemonService handles business logic for Pokemon operations
 type PokemonService struct {
+	ctx           context.Context
 	storage       storage.PokemonStorage
 	coffeeService *CoffeeService
 	brewService   *BrewService
@@ -32,11 +34,13 @@ type PokemonCandidates struct {
 
 // NewPokemonService creates a new Pokemon service
 func NewPokemonService(
+	ctx context.Context,
 	pokemonStorage storage.PokemonStorage,
 	coffeeService *CoffeeService,
 	brewService *BrewService,
 ) *PokemonService {
 	return &PokemonService{
+		ctx:           ctx,
 		storage:       pokemonStorage,
 		coffeeService: coffeeService,
 		brewService:   brewService,
@@ -49,7 +53,7 @@ func NewPokemonService(
 // Pokemon. The picker decides which list to display; an empty curated list is
 // legitimate (all type matches taken) and should fall back to All there.
 func (s *PokemonService) GetPokemonCandidates(coffeeID string) (*PokemonCandidates, error) {
-	existing, err := s.storage.GetCoffeePokemon(coffeeID)
+	existing, err := s.storage.GetCoffeePokemon(s.ctx, coffeeID)
 	if err == nil && existing != nil {
 		return nil, fmt.Errorf("Pokemon already generated for this coffee - regeneration not allowed")
 	}
@@ -128,7 +132,7 @@ func (c *PokemonCandidates) Match(p models.Pokemon) float64 {
 // confidence records how well the choice matched the coffee's trait-derived
 // types, so browse-all picks honestly report a lower match.
 func (s *PokemonService) CreateManualMapping(coffeeID string, pokemonID int, description string) (*models.CoffeePokemon, error) {
-	existing, _ := s.storage.GetCoffeePokemon(coffeeID)
+	existing, _ := s.storage.GetCoffeePokemon(s.ctx, coffeeID)
 	if existing != nil {
 		return nil, fmt.Errorf("pokemon already mapped")
 	}
@@ -195,7 +199,7 @@ func (s *PokemonService) CreateManualMapping(coffeeID string, pokemonID int, des
 		CreatedAt:         time.Now(),
 	}
 
-	if err := s.storage.CreateCoffeePokemon(*mapping); err != nil {
+	if err := s.storage.CreateCoffeePokemon(s.ctx, *mapping); err != nil {
 		return nil, fmt.Errorf("failed to create Pokemon mapping: %w", err)
 	}
 
@@ -205,14 +209,14 @@ func (s *PokemonService) CreateManualMapping(coffeeID string, pokemonID int, des
 
 // getAvailablePokemon returns all Pokemon that haven't been assigned yet
 func (s *PokemonService) getAvailablePokemon() ([]models.Pokemon, error) {
-	allPokemon, err := s.storage.GetAllPokemon()
+	allPokemon, err := s.storage.GetAllPokemon(s.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all Pokemon: %w", err)
 	}
 
 	available := make([]models.Pokemon, 0, len(allPokemon))
 	for _, p := range allPokemon {
-		used, err := s.storage.IsPokemonUsed(p.ID)
+		used, err := s.storage.IsPokemonUsed(s.ctx, p.ID)
 		if err != nil {
 			continue
 		}
@@ -262,28 +266,28 @@ func calculateLevel(rating int) int {
 
 // GetCoffeePokemon gets Pokemon mapping for a specific coffee
 func (s *PokemonService) GetCoffeePokemon(coffeeID string) (*models.CoffeePokemon, error) {
-	return s.storage.GetCoffeePokemon(coffeeID)
+	return s.storage.GetCoffeePokemon(s.ctx, coffeeID)
 }
 
 // HasPokemon checks if a coffee has a Pokemon mapping
 func (s *PokemonService) HasPokemon(coffeeID string) bool {
-	mapping, err := s.storage.GetCoffeePokemon(coffeeID)
+	mapping, err := s.storage.GetCoffeePokemon(s.ctx, coffeeID)
 	return err == nil && mapping != nil
 }
 
 // GetAllCoffeePokemon gets all coffee-Pokemon mappings
 func (s *PokemonService) GetAllCoffeePokemon() ([]models.CoffeePokemon, error) {
-	return s.storage.GetAllCoffeePokemon()
+	return s.storage.GetAllCoffeePokemon(s.ctx)
 }
 
 // UpdateNickname updates Pokemon nickname
 func (s *PokemonService) UpdateNickname(coffeeID, nickname string) error {
-	return s.storage.UpdateCoffeePokemonNickname(coffeeID, nickname)
+	return s.storage.UpdateCoffeePokemonNickname(s.ctx, coffeeID, nickname)
 }
 
 // InitializePokemonData checks if Pokemon data exists in database
 func (s *PokemonService) InitializePokemonData() error {
-	existing, err := s.storage.GetAllPokemon()
+	existing, err := s.storage.GetAllPokemon(s.ctx)
 	if err == nil && len(existing) > 0 {
 		log.Printf("Pokemon data already loaded: %d Pokemon in database", len(existing))
 		return nil

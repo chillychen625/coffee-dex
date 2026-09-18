@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"go-coffee-log/models"
 	"go-coffee-log/storage"
@@ -10,6 +11,7 @@ import (
 
 // StatisticsService handles analytics and statistics calculations
 type StatisticsService struct {
+	ctx            context.Context
 	coffeeStorage  storage.CoffeeStorage
 	brewStorage    storage.BrewStorage
 	pokemonStorage storage.PokemonStorage
@@ -18,11 +20,13 @@ type StatisticsService struct {
 
 // NewStatisticsService creates a new statistics service
 func NewStatisticsService(
+	ctx context.Context,
 	coffeeStorage storage.CoffeeStorage,
 	brewStorage storage.BrewStorage,
 	pokemonStorage storage.PokemonStorage,
 ) *StatisticsService {
 	return &StatisticsService{
+		ctx:            ctx,
 		coffeeStorage:  coffeeStorage,
 		brewStorage:    brewStorage,
 		pokemonStorage: pokemonStorage,
@@ -33,42 +37,42 @@ func NewStatisticsService(
 // Statistics represents overall coffee collection statistics
 type Statistics struct {
 	// Basic counts
-	TotalCoffees      int                       `json:"total_coffees"`
-	TotalPokemon      int                       `json:"total_pokemon"`
-	CompletionPercent float64                   `json:"completion_percent"`
-	
+	TotalCoffees      int     `json:"total_coffees"`
+	TotalPokemon      int     `json:"total_pokemon"`
+	CompletionPercent float64 `json:"completion_percent"`
+
 	// Ratings
-	AverageRating     float64                   `json:"average_rating"`
-	HighestRated      *CoffeeRatingSummary      `json:"highest_rated"`
-	LowestRated       *CoffeeRatingSummary      `json:"lowest_rated"`
-	
+	AverageRating float64              `json:"average_rating"`
+	HighestRated  *CoffeeRatingSummary `json:"highest_rated"`
+	LowestRated   *CoffeeRatingSummary `json:"lowest_rated"`
+
 	// Type distribution
-	TypeDistribution  map[string]int            `json:"type_distribution"`
-	MostCommonType    string                    `json:"most_common_type"`
-	
+	TypeDistribution map[string]int `json:"type_distribution"`
+	MostCommonType   string         `json:"most_common_type"`
+
 	// Origin statistics
-	OriginDistribution map[string]int           `json:"origin_distribution"`
-	TopOrigins        []OriginStat              `json:"top_origins"`
-	
+	OriginDistribution map[string]int `json:"origin_distribution"`
+	TopOrigins         []OriginStat   `json:"top_origins"`
+
 	// Processing methods
-	ProcessingStats   map[string]ProcessingStat `json:"processing_stats"`
-	
+	ProcessingStats map[string]ProcessingStat `json:"processing_stats"`
+
 	// Roast levels
-	RoastDistribution map[string]int            `json:"roast_distribution"`
-	
+	RoastDistribution map[string]int `json:"roast_distribution"`
+
 	// Trait analysis
-	TraitAverages     models.TastingTraits      `json:"trait_averages"`
-	TraitRanges       TraitRanges               `json:"trait_ranges"`
-	
+	TraitAverages models.TastingTraits `json:"trait_averages"`
+	TraitRanges   TraitRanges          `json:"trait_ranges"`
+
 	// Brewer analysis
-	BrewerStats       map[string]BrewerStat     `json:"brewer_stats"`
-	
+	BrewerStats map[string]BrewerStat `json:"brewer_stats"`
+
 	// Confidence metrics
-	AverageConfidence float64                   `json:"average_confidence"`
-	HighConfidencePairings int                  `json:"high_confidence_pairings"` // >= 0.8
+	AverageConfidence      float64 `json:"average_confidence"`
+	HighConfidencePairings int     `json:"high_confidence_pairings"` // >= 0.8
 
 	// Roaster statistics
-	RoasterStats      map[string]RoasterStat    `json:"roaster_stats"`
+	RoasterStats map[string]RoasterStat `json:"roaster_stats"`
 }
 
 // RoasterStat represents statistics for a coffee roaster.
@@ -81,11 +85,11 @@ type RoasterStat struct {
 
 // CoffeeRatingSummary represents a summary of a coffee for rating display
 type CoffeeRatingSummary struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Origin       string  `json:"origin"`
-	Rating       int     `json:"rating"`
-	PokemonName  string  `json:"pokemon_name,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Origin      string `json:"origin"`
+	Rating      int    `json:"rating"`
+	PokemonName string `json:"pokemon_name,omitempty"`
 }
 
 // OriginStat represents statistics for a coffee origin
@@ -97,8 +101,8 @@ type OriginStat struct {
 
 // ProcessingStat represents statistics for a processing method
 type ProcessingStat struct {
-	Count         int     `json:"count"`
-	AverageRating float64 `json:"average_rating"`
+	Count         int      `json:"count"`
+	AverageRating float64  `json:"average_rating"`
 	CommonTypes   []string `json:"common_types"`
 }
 
@@ -111,17 +115,17 @@ type BrewerStat struct {
 
 // TraitRanges represents min/max ranges for tasting traits
 type TraitRanges struct {
-	BerryRange      Range `json:"berry_range"`
-	StonefruitRange Range `json:"stonefruit_range"`
-	RoastRange      Range `json:"roast_range"`
-	CitrusRange     Range `json:"citrus_range"`
-	BitternessRange Range `json:"bitterness_range"`
-	FloralityRange  Range `json:"florality_range"`
-	SpiceRange      Range `json:"spice_range"`
-	SweetnessRange  Range `json:"sweetness_range"`
-	AromaticRange   Range `json:"aromatic_range"`
-	SavoryRange     Range `json:"savory_range"`
-	BodyRange       Range `json:"body_range"`
+	BerryRange       Range `json:"berry_range"`
+	StonefruitRange  Range `json:"stonefruit_range"`
+	RoastRange       Range `json:"roast_range"`
+	CitrusRange      Range `json:"citrus_range"`
+	BitternessRange  Range `json:"bitterness_range"`
+	FloralityRange   Range `json:"florality_range"`
+	SpiceRange       Range `json:"spice_range"`
+	SweetnessRange   Range `json:"sweetness_range"`
+	AromaticRange    Range `json:"aromatic_range"`
+	SavoryRange      Range `json:"savory_range"`
+	BodyRange        Range `json:"body_range"`
 	CleanlinessRange Range `json:"cleanliness_range"`
 }
 
@@ -134,17 +138,17 @@ type Range struct {
 // CalculateStatistics computes all statistics from the database
 func (s *StatisticsService) CalculateStatistics() (*Statistics, error) {
 	// Get all coffees, brews, and pokemon mappings
-	coffees, err := s.coffeeStorage.GetAll()
+	coffees, err := s.coffeeStorage.GetAll(s.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get coffees: %w", err)
 	}
 
-	brews, err := s.brewStorage.GetAll()
+	brews, err := s.brewStorage.GetAll(s.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get brews: %w", err)
 	}
 
-	pokemonMappings, err := s.pokemonStorage.GetAllCoffeePokemon()
+	pokemonMappings, err := s.pokemonStorage.GetAllCoffeePokemon(s.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pokemon mappings: %w", err)
 	}
@@ -601,17 +605,17 @@ func (s *StatisticsService) calculateConfidenceMetrics(mappings []models.CoffeeP
 	if len(mappings) == 0 {
 		return
 	}
-	
+
 	totalConfidence := 0.0
 	highConfidence := 0
-	
+
 	for _, mapping := range mappings {
 		totalConfidence += mapping.MappingConfidence
 		if mapping.MappingConfidence >= 0.8 {
 			highConfidence++
 		}
 	}
-	
+
 	stats.AverageConfidence = math.Round((totalConfidence/float64(len(mappings)))*100) / 100
 	stats.HighConfidencePairings = highConfidence
 }

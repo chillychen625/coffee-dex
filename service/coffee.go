@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"go-coffee-log/models"
 	"go-coffee-log/storage"
 	"time"
@@ -12,12 +13,13 @@ import (
 // TODO: Add the following field:
 //   - storage (storage.CoffeeStorage) - the storage implementation to use
 type CoffeeService struct {
+	ctx     context.Context
 	storage storage.CoffeeStorage
 }
 
 // NewCoffeeService creates a new coffee service
-func NewCoffeeService(storage storage.CoffeeStorage) *CoffeeService {
-	return &CoffeeService{storage: storage}
+func NewCoffeeService(ctx context.Context, storage storage.CoffeeStorage) *CoffeeService {
+	return &CoffeeService{ctx: ctx, storage: storage}
 }
 
 // CreateCoffee creates a new coffee entry
@@ -27,20 +29,21 @@ func NewCoffeeService(storage storage.CoffeeStorage) *CoffeeService {
 //   - Set CreatedAt and UpdatedAt to current time
 //   - Validate the coffee data
 //   - Save to storage
+//
 // HINT: Use time.Now() for timestamps
 func (s *CoffeeService) CreateCoffee(coffee models.Coffee) (models.Coffee, error) {
 	coffee.ID = uuid.New().String()
 	coffee.CreatedAt = time.Now()
 	coffee.UpdatedAt = time.Now()
-	
+
 	if err := coffee.Validate(); err != nil {
 		return models.Coffee{}, err
 	}
-	
-	if err := s.storage.Save(coffee); err != nil {
+
+	if err := s.storage.Save(s.ctx, coffee); err != nil {
 		return models.Coffee{}, err
 	}
-	
+
 	return coffee, nil
 }
 
@@ -48,7 +51,7 @@ func (s *CoffeeService) CreateCoffee(coffee models.Coffee) (models.Coffee, error
 // TODO: Implement this method
 // HINT: Delegate to storage.GetByID
 func (s *CoffeeService) GetCoffee(id string) (models.Coffee, error) {
-	coffee, err := s.storage.GetByID(id)
+	coffee, err := s.storage.GetByID(s.ctx, id)
 	if err != nil {
 		return models.Coffee{}, err
 	}
@@ -59,12 +62,12 @@ func (s *CoffeeService) GetCoffee(id string) (models.Coffee, error) {
 // TODO: Implement this method
 // HINT: Delegate to storage.GetAll
 func (s *CoffeeService) ListCoffees() ([]models.Coffee, error) {
-	return s.storage.GetAll()
+	return s.storage.GetAll(s.ctx)
 }
 
 // GetRecentCoffees retrieves the most recent coffees
 func (s *CoffeeService) GetRecentCoffees(limit int) ([]models.Coffee, error) {
-	return s.storage.GetRecent(limit)
+	return s.storage.GetRecent(s.ctx, limit)
 }
 
 // UpdateCoffee modifies an existing coffee
@@ -74,25 +77,25 @@ func (s *CoffeeService) GetRecentCoffees(limit int) ([]models.Coffee, error) {
 //   - Validate the new data
 //   - Save to storage
 func (s *CoffeeService) UpdateCoffee(id string, coffee models.Coffee) (models.Coffee, error) {
-	coffee.ID = id  // Set the ID from the URL
+	coffee.ID = id // Set the ID from the URL
 	coffee.UpdatedAt = time.Now()
-	
+
 	if err := coffee.Validate(); err != nil {
 		return models.Coffee{}, err
 	}
-	
-	if err := s.storage.Update(id, coffee); err != nil {
+
+	if err := s.storage.Update(s.ctx, id, coffee); err != nil {
 		return models.Coffee{}, err
 	}
-	
-	return coffee, nil  // ← Return the updated coffee, not empty!
+
+	return coffee, nil // ← Return the updated coffee, not empty!
 }
 
 // DeleteCoffee removes a coffee entry
 // TODO: Implement this method
 // HINT: Delegate to storage.Delete
 func (s *CoffeeService) DeleteCoffee(id string) error {
-	if err := s.storage.Delete(id); err != nil {
+	if err := s.storage.Delete(s.ctx, id); err != nil {
 		return err
 	}
 	return nil
@@ -100,7 +103,7 @@ func (s *CoffeeService) DeleteCoffee(id string) error {
 
 // MarkAsFinished marks a coffee bag as finished (allows Pokemon generation with fewer brews)
 func (s *CoffeeService) MarkAsFinished(id string) (models.Coffee, error) {
-	coffee, err := s.storage.GetByID(id)
+	coffee, err := s.storage.GetByID(s.ctx, id)
 	if err != nil {
 		return models.Coffee{}, err
 	}
@@ -110,7 +113,7 @@ func (s *CoffeeService) MarkAsFinished(id string) (models.Coffee, error) {
 	coffee.FinishedAt = &now
 	coffee.UpdatedAt = now
 
-	if err := s.storage.Update(id, coffee); err != nil {
+	if err := s.storage.Update(s.ctx, id, coffee); err != nil {
 		return models.Coffee{}, err
 	}
 
