@@ -103,12 +103,9 @@ func (s *WarehouseScene) loadCoffees() {
 	}
 	// Build set of coffees that already have a Pokemon assigned
 	allPokemon, _ := s.svc.Pokemon.GetAllCoffeePokemon()
-	var allCoffees []models.Coffee
 	withPokemon := make(map[string]bool, len(allPokemon))
 	for _, p := range allPokemon {
 		withPokemon[p.CoffeeID] = true
-		var coffee, _ = s.svc.Coffee.GetCoffee(p.CoffeeID)
-		allCoffees = append(allCoffees, coffee)
 	}
 	// Show all coffees without a Pokemon yet — open and closed bags both
 	s.coffees = nil
@@ -121,7 +118,7 @@ func (s *WarehouseScene) loadCoffees() {
 	var roasterSet[]string
 	var originSet []string
 	var varietySet []string
-	for _, c := range allCoffees {
+	for _, c := range all {
 		// build lists of roasters, origins, and varieties. dedup all. only add unseen.
 		if c.Roaster != "" && slices.Contains(roasterSet, c.Roaster) != true {
 			roasterSet = append(roasterSet, c.Roaster)
