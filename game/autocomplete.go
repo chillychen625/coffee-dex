@@ -7,8 +7,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
-const maxDropItems = 6
-
 type AutoComplete struct {
 	TextInput
 	options  []string
@@ -20,7 +18,15 @@ type AutoComplete struct {
 }
 
 func (a *AutoComplete) SetOptions(opts []string) {
-	a.options = opts
+	// dedupe while preserving order — callers may pass unfiltered lists
+	seen := make(map[string]struct{}, len(opts))
+	a.options = a.options[:0]
+	for _, opt := range opts {
+		if _, ok := seen[opt]; !ok {
+			seen[opt] = struct{}{}
+			a.options = append(a.options, opt)
+		}
+	}
 }
 
 func (a *AutoComplete) filterMatches() {
@@ -34,9 +40,6 @@ func (a *AutoComplete) filterMatches() {
 	for _, opt := range a.options {
 		if strings.Contains(strings.ToLower(opt), lower) {
 			a.matches = append(a.matches, opt)
-			if len(a.matches) >= maxDropItems {
-				break
-			}
 		}
 	}
 	a.matchSel = 0
@@ -77,7 +80,8 @@ func (a *AutoComplete) Update(focused bool) bool {
 			return false
 		}
 		if isKeyJustPressed(ebiten.KeyEscape) {
-			a.DropOpen = false
+			// simple dipmle just press escape go to top of list. ezpz currenty gets around the issue of next frame pop open again.
+			a.matchSel = 0
 			return true // suppress — don't propagate to scene navigation
 		}
 	}
