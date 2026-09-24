@@ -60,6 +60,7 @@ type RoasteryScene struct {
 
 	// Brew form
 	coffees   []models.Coffee
+	unmapped []models.Coffee
 	coffeeSel int
 	rating    int
 	dripper   AutoComplete
@@ -93,9 +94,18 @@ func (s *RoasteryScene) OnEnter(svc *Services) {
 	s.svc = svc
 	s.sub = roastSubMenu
 	s.sel = 0
-	coffees, err := svc.Coffee.ListCoffees()
-	if err == nil {
-		s.coffees = coffees
+	allPokemon, _ := s.svc.Pokemon.GetAllCoffeePokemon()
+	withPokemon := make(map[string]bool, len(allPokemon))
+	for _, p := range allPokemon {
+		withPokemon[p.CoffeeID] = true
+	}
+	// Show all coffees without a Pokemon yet — open and closed bags both
+
+	coffees, _ := svc.Coffee.ListCoffees()
+	for _, c := range coffees {
+		if !withPokemon[c.ID] {
+			s.unmapped = append(s.unmapped, c)
+		}
 	}
 	s.loadDrippers()
 }
@@ -309,7 +319,7 @@ func (s *RoasteryScene) updateLogBrew() SceneID {
 		if isKeyActive(ebiten.KeyArrowLeft) && s.coffeeSel > 0 {
 			s.coffeeSel--
 		}
-		if isKeyActive(ebiten.KeyArrowRight) && s.coffeeSel < len(s.coffees)-1 {
+		if isKeyActive(ebiten.KeyArrowRight) && s.coffeeSel < len(s.unmapped)-1 {
 			s.coffeeSel++
 		}
 	case brewFieldRating:
@@ -525,8 +535,8 @@ func (s *RoasteryScene) drawLogBrew(screen *ebiten.Image) {
 	// Coffee
 	if inView(brewFieldCoffee) {
 		coffeeName := "(no coffees)"
-		if len(s.coffees) > 0 {
-			coffeeName = fmt.Sprintf("◄ %s ►", truncate(s.coffees[s.coffeeSel].Name, 28))
+		if len(s.unmapped) > 0 {
+			coffeeName = fmt.Sprintf("◄ %s ►", truncate(s.unmapped[s.coffeeSel].Name, 28))
 		}
 		drawFieldRow(screen, "Coffee:", coffeeName, fieldY(brewFieldCoffee), s.brewFocus == brewFieldCoffee)
 	}
